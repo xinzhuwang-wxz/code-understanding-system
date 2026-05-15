@@ -327,18 +327,27 @@ class SidebarController {
             });
             const data = await resp.json();
 
-            let html = `<div style="margin-bottom:8px;color:#58a6ff;font-weight:600;">🤖 AI Response</div>`;
-            html += `<div style="margin-bottom:12px;line-height:1.6;">${data.answer || 'No answer available.'}</div>`;
+            // Render answer with inline markdown
+            const answerHtml = this._renderAnswerMarkdown(data.answer || 'No answer available.');
+            // Make known references clickable in the answer text
+            const clickableAnswer = this._makeReferencesClickable(answerHtml, data.references || []);
+
+            let html = `<div class="ai-answer-header">🤖 AI Response</div>`;
+            html += `<div class="ai-answer-body">${clickableAnswer}</div>`;
 
             if (data.references && data.references.length > 0) {
-                html += `<div style="margin-bottom:4px;color:#8b949e;font-size:10px;">📎 Related code (${data.references.length}):</div>`;
-                for (const r of data.references.slice(0, 5)) {
-                    html += `<div class="ai-ref" style="font-size:10px;padding:2px 0;color:#6e7681;cursor:pointer;"`;
-                    html += ` onclick="window.codeKG.showNode('${this._esc(r.node_id)}')">`;
-                    html += `${this._esc(r.label)} <span style="color:#484f58;">@ ${this._esc(r.file_path)}:${r.line_number}</span>`;
-                    html += r.score ? ` <span style="color:#58a6ff;font-size:9px;">${r.score.toFixed(2)}</span>` : '';
+                html += `<div class="ai-refs-title">📎 Related code (${data.references.length}) — click to highlight on graph</div>`;
+                html += `<div class="ai-refs-list">`;
+                for (const r of data.references.slice(0, 8)) {
+                    const typeBadge = `<span class="ai-ref-type">${r.type || 'node'}</span>`;
+                    const fileInfo = r.file_path ? `<span class="ai-ref-file">${this._esc(r.file_path)}:${r.line_number || 0}</span>` : '';
+                    html += `<div class="ai-ref-card" onclick="window.codeKG.showNode('${this._esc(r.node_id)}')" title="Click to locate on graph">`;
+                    html += `<span class="ai-ref-label">${typeBadge} <strong>${this._esc(r.label)}</strong></span>`;
+                    html += fileInfo;
+                    if (r.score) html += `<span class="ai-ref-score">${(r.score * 100).toFixed(0)}%</span>`;
                     html += `</div>`;
                 }
+                html += `</div>`;
             }
 
             answerEl.innerHTML = html;
@@ -350,7 +359,40 @@ class SidebarController {
                 window.breadcrumb.pushSearch(`AI: ${question.substring(0, 40)}`);
             }
         } catch (err) {
-            answerEl.innerHTML = `<div style="color:#f85149;">AI Ask failed: ${err.message}</div>`;
+            answerEl.innerHTML = `<div class="ai-answer-error">AI Ask failed: ${err.message}</div>`;
         }
+    }
+
+    /** Convert simple markdown (bold, italic, code, links) to HTML. */
+    _renderAnswerMarkdown(text) {
+        let html = this._esc(text);
+        html = html.replace(/&amp;lt;code&amp;gt;([\s\S]*?)&amp;lt;\/code&amp;gt;/g, '<code>$1</code>');
+        html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="ai-md-code"><code>$2</code></pre>');
+        html = html.replace(/`([^`]+)`/g, '<code class="ai-md-inline">$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+        html = html.replace(/\n\n/g, '</p><p class="ai-md-p">');
+        html = '<p class="ai-md-p">' + html + '</p>';
+        html = html.replace(/<p class="ai-md-p"><\/p>/g, '');
+        html = html.replace(/\n/g, '<br>');
+        return html;
+    }
+
+    /** Wrap known reference labels in clickable spans inside the answer. */
+    _makeReferencesClickable(answerHtml, refs) {
+        if (!refs || refs.length === 0) return answerHtml;
+        // Sort by label length descending to avoid partial matches
+        const sorted = [...refs].sort((a, b) => (b.label || '').length - (a.label || '').length);
+        for (const r of sorted) {
+            const label = r.label;
+            if (!label || label.length < 2) continue;
+            // Only match whole-word occurrences in text nodes (not already inside tags)
+            const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(?<![>\\w])${escaped}(?![\\w<])`, 'gi');
+            answerHtml = answerHtml.replace(regex, (match) => {
+                return `<span class="ai-clickable-ref" onclick="event.stopPropagation();window.codeKG.showNode('${this._esc(r.node_id)}')" title="Click to locate">${match}</span>`;
+            });
+        }
+        return answerHtml;
     }
 }

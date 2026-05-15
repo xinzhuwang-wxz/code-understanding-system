@@ -471,6 +471,9 @@
             if (detailPanel && nodeId) {
                 detailPanel.show(nodeId);
             }
+            if (graph && nodeId) {
+                graph.setSearchMatches([nodeId]);
+            }
         },
     };
 

@@ -1282,6 +1282,140 @@ html, body {
     padding: 8px 0;
 }
 
+/* ── AI Ask (sidebar) ── */
+
+.ai-answer-header {
+    color: #58a6ff;
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.ai-answer-body {
+    color: #c9d1d9;
+    font-size: 12px;
+    line-height: 1.65;
+    margin-bottom: 14px;
+}
+
+.ai-md-p {
+    margin: 0 0 8px;
+}
+
+.ai-md-inline {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: #79c0ff;
+}
+
+.ai-md-code {
+    display: block;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: #c9d1d9;
+    overflow-x: auto;
+    line-height: 1.5;
+}
+
+.ai-clickable-ref {
+    color: #58a6ff;
+    cursor: pointer;
+    border-bottom: 1px dashed #58a6ff;
+    transition: background 0.15s;
+}
+.ai-clickable-ref:hover {
+    background: rgba(88, 166, 255, 0.15);
+}
+
+.ai-answer-error {
+    color: #f85149;
+    font-size: 12px;
+    padding: 8px 0;
+}
+
+/* ── Related Code Cards ── */
+
+.ai-refs-title {
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #21262d;
+}
+
+.ai-refs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.ai-ref-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 12px;
+}
+.ai-ref-card:hover {
+    background: #1c2129;
+    border-color: #58a6ff;
+    transform: translateX(2px);
+}
+
+.ai-ref-type {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #1a2332;
+    color: #58a6ff;
+    flex-shrink: 0;
+}
+
+.ai-ref-label {
+    color: #c9d1d9;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-ref-file {
+    color: #484f58;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+.ai-ref-score {
+    background: #0d419d;
+    color: #58a6ff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
 /* ── Print Styles ── */
 
 @media print {
