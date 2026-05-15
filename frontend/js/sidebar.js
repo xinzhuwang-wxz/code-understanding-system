@@ -340,7 +340,7 @@ class SidebarController {
                 html += `<div class="ai-refs-list">`;
                 for (const r of data.references.slice(0, 8)) {
                     const typeBadge = `<span class="ai-ref-type">${r.type || 'node'}</span>`;
-                    const fileInfo = r.file_path ? `<span class="ai-ref-file">${this._esc(r.file_path)}:${r.line_number || 0}</span>` : '';
+                    const fileInfo = r.file_path ? `<span class="ai-ref-file" title="${this._esc(r.file_path)}:${r.line_number || 0}">${this._esc(r.file_path)}<span class="ai-ref-ln">:${r.line_number || 0}</span></span>` : '';
                     html += `<div class="ai-ref-card" onclick="window.codeKG.showNode('${this._esc(r.node_id)}')" title="Click to locate on graph">`;
                     html += `<span class="ai-ref-label">${typeBadge} <strong>${this._esc(r.label)}</strong></span>`;
                     html += fileInfo;
@@ -381,15 +381,29 @@ class SidebarController {
     /** Wrap known reference labels in clickable spans inside the answer. */
     _makeReferencesClickable(answerHtml, refs) {
         if (!refs || refs.length === 0) return answerHtml;
-        // Sort by label length descending to avoid partial matches
-        const sorted = [...refs].sort((a, b) => (b.label || '').length - (a.label || '').length);
-        for (const r of sorted) {
+        // Deduplicate and sort by label length descending to avoid partial matches
+        const seen = new Set();
+        const deduped = [];
+        for (const r of refs) {
             const label = r.label;
-            if (!label || label.length < 2) continue;
-            // Only match whole-word occurrences in text nodes (not already inside tags)
+            if (!label || label.length < 2 || seen.has(label.toLowerCase())) continue;
+            seen.add(label.toLowerCase());
+            deduped.push(r);
+        }
+        deduped.sort((a, b) => (b.label || '').length - (a.label || '').length);
+
+        for (const r of deduped) {
+            const label = r.label;
+            // Match whole words bounded by non-word chars (includes inside <code>, <strong> etc.)
             const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`(?<![>\\w])${escaped}(?![\\w<])`, 'gi');
+            const regex = new RegExp(`(?<![\\w])${escaped}(?![\\w])`, 'gi');
             answerHtml = answerHtml.replace(regex, (match) => {
+                // Skip if already wrapped in ai-clickable-ref
+                const before = answerHtml.substring(
+                    Math.max(0, answerHtml.lastIndexOf(match) - 50),
+                    answerHtml.lastIndexOf(match)
+                );
+                if (before.includes('ai-clickable-ref')) return match;
                 return `<span class="ai-clickable-ref" onclick="event.stopPropagation();window.codeKG.showNode('${this._esc(r.node_id)}')" title="Click to locate">${match}</span>`;
             });
         }

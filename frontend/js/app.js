@@ -402,7 +402,7 @@
             return;
         }
         questionsContent.innerHTML = questions.map(q => `
-            <div class="question-item" onclick="document.getElementById('search-input').value = '${q.question.replace(/'/g, "\\'")}'; document.getElementById('search-input').focus();">
+            <div class="question-item" onclick="const el=document.getElementById('ai-ask-input');el.value='${q.question.replace(/'/g, "\\'")}';el.focus();">
                 <div class="question-text">${q.question}</div>
                 <span class="question-category">${q.category || "general"}</span>
             </div>

@@ -1403,7 +1403,13 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 160px;
+    max-width: 130px;
+    flex-shrink: 1;
+}
+
+.ai-ref-ln {
+    color: #30363d;
+    font-size: 9px;
 }
 
 .ai-ref-score {

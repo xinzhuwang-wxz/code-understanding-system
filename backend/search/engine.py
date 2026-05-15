@@ -145,23 +145,36 @@ class SearchEngine:
         """Layer 1: Pattern-based search via KuzuDB CONTAINS (BM25-like)."""
         try:
             kg = self._get_kg()
-            rows = kg.search_by_pattern(node_type, query) if node_type else kg.query(
-                "MATCH (n:Node) WHERE n.label CONTAINS $query RETURN n.*, n.label AS label, n.id AS id LIMIT $limit",
+            # Search by label AND file_path for filename queries like "model.py"
+            rows = kg.query(
+                "MATCH (n:Node) WHERE n.label CONTAINS $query OR n.file_path CONTAINS $query "
+                "RETURN n.*, n.label AS label, n.id AS id LIMIT $limit",
                 {"query": query, "limit": 200}
             )
             results = []
+            seen = set()
             for r in rows:
+                nid = r.get("n.id", "")
+                if nid in seen: continue
+                seen.add(nid)
+                # Boost score for exact label match
+                label = r.get("n.label", "")
+                score = 0.9 if label.lower() == query.lower() else 0.7 if query.lower() in label.lower() else 0.5
                 results.append(SearchResult(
-                    node_id=r.get("n.id", ""),
-                    label=r.get("n.label", ""),
+                    node_id=nid,
+                    label=label,
                     node_type=r.get("n.type", ""),
                     file_path=r.get("n.file_path", ""),
                     line_number=r.get("n.line_number", 0),
                     signature=r.get("n.signature", ""),
                     docstring=r.get("n.docstring", ""),
-                    score=0.8,
+                    score=score,
                     source_layer="structural",
                 ))
+            # If node_type filter is set, apply it
+            if node_type:
+                results = [r for r in results if r.node_type == node_type]
+            results.sort(key=lambda r: r.score, reverse=True)
             return results
         except Exception:
             return []
