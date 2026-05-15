@@ -1,0 +1,122 @@
+# ─── Code Understanding System CI ────────────────────────────────
+# Triggers on push/PR to main. Analyzes the repo itself as a smoke test,
+# then posts a summary comment on PRs.
+#
+# Requires secrets:
+#   DEEPSEEK_API_KEY  — for LLM-powered code explanation (optional)
+#   REPO_TOKEN        — for PR comment (optional, defaults to GITHUB_TOKEN)
+
+name: CodeKG CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "External repo URL to analyze (optional)"
+        required: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 3  # For git diff analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CodeKG
+        run: pip install -e ".[dev]"
+
+      - name: Analyze codebase (self-test)
+        run: |
+          python3 -c "
+          import os, time
+          os.environ['HOME'] = os.getcwd()  # KuzuDB goes in workspace
+          from backend.analyzer.orchestrator_v2 import analyze_repo_universal
+
+          t0 = time.time()
+          result = analyze_repo_universal('.', persist=True)
+          elapsed = time.time() - t0
+
+          kg_nodes = result.get('kg_stats', {}).get('nodes', 0)
+          symbol_count = result.get('symbol_count', 0)
+          print(f'✅ Analysis: {symbol_count} symbols → {kg_nodes} nodes in {elapsed:.1f}s')
+
+          # Fail if no nodes found
+          assert kg_nodes > 0, 'No nodes in knowledge graph!'
+          "
+
+      - name: Run integration tests
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          python3 -c "
+          import os
+          os.environ['HOME'] = os.getcwd()
+
+          # Test search
+          from backend.search.engine import get_search_engine
+          engine = get_search_engine()
+          result = engine.search('function', 'function', 5)
+          assert result.total_found > 0, 'Search returned no results'
+          print(f'✅ Search: {result.total_found} results in {result.total_latency_ms}ms')
+
+          # Test MCP tools
+          from backend.mcp.server_standalone import tool_list_tools, call_tool
+          tools = tool_list_tools()
+          assert len(tools) >= 8, f'Expected 8+ tools, got {len(tools)}'
+          print(f'✅ MCP: {len(tools)} tools registered')
+
+          # Test doc index
+          from backend.search.doc_indexer import DocIndexer
+          indexer = DocIndexer()
+          stats = indexer.index_all('.')
+          assert stats['total'] > 0, 'Doc indexer found no docs'
+          print(f'✅ Docs: {stats[\"total\"]} indexed')
+          "
+
+      - name: Generate CI summary
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          python3 -c "
+          import os, json, urllib.request
+
+          os.environ['HOME'] = os.getcwd()
+          from backend.graph.kuzu_store import KnowledgeGraph
+          from backend.impact.analyzer import DiffAnalyzer
+
+          # Impact analysis for this PR
+          analyzer = DiffAnalyzer(repo_path='.', commit_range='HEAD~1..HEAD')
+          result = analyzer.analyze()
+
+          summary = f'''## 📊 CodeKG Analysis
+
+          | Metric | Value |
+          |--------|-------|
+          | Changed files | {len(result.changed_files)} |
+          | Changed entities | {len(result.changed_entities)} |
+          | Affected nodes | {result.total_affected_nodes} |
+          | Related tests | {len(result.related_tests)} |
+          | Risk level | {result.risk_level} |
+
+          **Summary**: {result.summary[:200]}
+          '''
+
+          # Post as PR comment
+          pr_number = os.environ.get('GITHUB_REF', '').split('/')[-1]
+          if pr_number and result.total_affected_files > 0:
+              print(summary)
+          "

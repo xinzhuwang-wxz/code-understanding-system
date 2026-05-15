@@ -1,0 +1,58 @@
+# ─── Code Understanding System ───────────────────────────────────
+# docker compose up -d
+#
+# Services:
+#   code-kg    — Web UI (http://localhost:8765) + API + MCP Server
+#   mcp-bridge — Optional: expose MCP over HTTP for cloud agents
+#
+# Volumes:
+#   kuzu_data  — Persistent graph database
+#   memory     — Episodic memory + conventions
+
+version: "3.9"
+
+services:
+  code-kg:
+    build: .
+    image: code-kg:latest
+    container_name: code-kg
+    restart: unless-stopped
+
+    ports:
+      - "8765:8765"
+
+    volumes:
+      - kuzu_data:/data
+      - memory:/root/.code-kg/memory
+
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - CODE_KG_DATA=/data
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/status')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Optional: HTTP bridge for MCP protocol (use when stdio is impractical)
+  # mcp-bridge:
+  #   build: .
+  #   container_name: code-kg-mcp
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8766:8766"
+  #   volumes:
+  #     - kuzu_data:/data
+  #   environment:
+  #     - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+  #   command: ["python3", "backend/mcp/server_standalone.py"]
+  #   stdin_open: true
+  #   tty: true
+
+volumes:
+  kuzu_data:
+    driver: local
+  memory:
+    driver: local
