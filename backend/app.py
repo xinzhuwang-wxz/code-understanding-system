@@ -773,9 +773,11 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
             engine = get_search_engine()
             search_resp = engine.search(req.question, node_type="", max_results=req.max_context, text_only=False)
             results = search_resp.results
-            if results:
+            # Filter out garbage: ref nodes with no file_path, empty labels
+            good_results = [r for r in results if r.file_path and r.file_path.strip() and r.label and r.label.strip()]
+            if good_results:
                 context_parts = []
-                for r in results:
+                for r in good_results:
                     node_ctx = f"[{r.label}] ({r.node_type} @ {r.file_path}:{r.line_number})"
                     if r.signature:
                         node_ctx += f"\n  sig: {r.signature}"
@@ -799,7 +801,6 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
                     pass
                 else:
                     kg = KnowledgeGraph(str(db_path))
-                    # Split question into words, filter stopwords, search each
                     import re
                     stopwords = {"what", "is", "are", "the", "a", "an", "in", "of", "to",
                                  "does", "do", "how", "can", "i", "you", "it", "and", "or",
@@ -813,25 +814,69 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
                     if not keywords:
                         keywords = [req.question.lower().strip()]
 
-                    seen_ids: set = set()
-                    fallback_rows = []
-                    for kw in keywords[:5]:  # at most 5 keywords
+                    # Collect all results from ALL keywords, deduplicate,
+                    # score each by WHERE they matched (label > docstring > file_path),
+                    # then sort: high-score code nodes first
+                    seen_ids: dict[str, dict] = {}  # id → {row, score}
+                    all_variants: list = []
+                    for kw in keywords[:8]:
+                        # Also try stem variants (e.g. "configure" → "config")
+                        variants = [kw]
+                        if kw.endswith(('ing', 'ed', 'tion', 'sion', 'ure', 'ment')):
+                            stem = re.sub(r'(ing|ed|tion|sion|ure|ment)$', '', kw)
+                            if len(stem) >= 3 and stem != kw:
+                                variants.append(stem)
+                            if len(stem) >= 3:
+                                for suffix in ['', 'e', 'ion']:
+                                    v = stem + suffix
+                                    if v != kw and v not in variants:
+                                        variants.append(v)
+                        all_variants.extend(variants[:3])
+
+                    for variant in all_variants:
+                        v_lower = variant.lower()
                         rows = kg.query(
                             "MATCH (n:Node) WHERE "
                             "(n.type IN ['function', 'class', 'method'] OR n.type = 'file' OR n.type = 'module') "
-                            "AND (n.label CONTAINS $kw OR n.file_path CONTAINS $kw OR n.docstring CONTAINS $kw) "
+                            "AND (n.label CONTAINS $v OR n.file_path CONTAINS $v OR n.docstring CONTAINS $v) "
                             "AND n.file_path IS NOT NULL AND n.file_path <> '' "
                             "RETURN n.id, n.label, n.type, n.file_path, n.line_number, n.signature, n.docstring "
-                            "LIMIT 20",
-                            {"kw": kw}
+                            "LIMIT 100",
+                            {"v": variant}
                         )
                         for r in rows:
                             nid = r.get("n.id", "")
-                            if nid not in seen_ids:
-                                seen_ids.add(nid)
-                                fallback_rows.append(r)
-                        if len(fallback_rows) >= req.max_context * 5:
-                            break
+                            entry = seen_ids.get(nid)
+                            if entry is None:
+                                entry = {"row": r, "score": 0}
+                                seen_ids[nid] = entry
+                            # Score: label match (3) > docstring (2) > file_path (1)
+                            label_l = (r.get("n.label", "") or "").lower()
+                            doc_l = (r.get("n.docstring", "") or "").lower()
+                            fp_l = (r.get("n.file_path", "") or "").lower()
+                            if v_lower in label_l:
+                                entry["score"] += 3
+                            if v_lower in doc_l:
+                                entry["score"] += 2
+                            if v_lower in fp_l:
+                                entry["score"] += 1
+                            # Bonus for having a docstring
+                            if doc_l.strip():
+                                entry["score"] += 0.5
+
+                    # Build sorted list
+                    type_priority = {"function": 0, "class": 0, "method": 0, "file": 1, "module": 2}
+                    fallback_rows: list = []
+                    for entry in seen_ids.values():
+                        fallback_rows.append(entry)
+                    # Sort by: -score (desc), then type_priority (asc), then label
+                    fallback_rows.sort(key=lambda e: (
+                        -e["score"],
+                        type_priority.get(e["row"].get("n.type", ""), 3),
+                        (e["row"].get("n.label", "") or "").lower()
+                    ))
+                    # Extract just the row dicts
+                    fallback_rows = [e["row"] for e in fallback_rows]
 
                     if not fallback_rows:
                         # Still nothing — grab top nodes by presence of docstring
