@@ -771,7 +771,7 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
         try:
             from search.engine import get_search_engine
             engine = get_search_engine()
-            search_resp = engine.search(req.question, node_type="", max_results=req.max_context)
+            search_resp = engine.search(req.question, node_type="", max_results=req.max_context, text_only=False)
             results = search_resp.results
             if results:
                 context_parts = []
@@ -791,6 +791,39 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
                         "score": r.score,
                     })
                 context = "\n\n".join(context_parts)
+            else:
+                # Fallback: search returned 0 — grab top functions/classes as context
+                from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+                db_path = get_default_db_path()
+                if db_path.exists():
+                    kg = KnowledgeGraph(str(db_path))
+                    fallback_rows = kg.query(
+                        "MATCH (n:Node) WHERE n.type IN ['function', 'class', 'method'] "
+                        "AND n.file_path IS NOT NULL AND n.file_path <> '' "
+                        "RETURN n.id, n.label, n.type, n.file_path, n.line_number, n.signature, n.docstring "
+                        "ORDER BY n.type, n.label LIMIT $limit",
+                        {"limit": req.max_context * 5}
+                    )
+                    kg.close()
+                    context_parts = []
+                    for r in fallback_rows:
+                        node_ctx = f"[{r.get('n.label','')}] ({r.get('n.type','')} @ {r.get('n.file_path','')}:{r.get('n.line_number',0)})"
+                        sig = r.get('n.signature', '')
+                        if sig:
+                            node_ctx += f"\n  sig: {sig}"
+                        doc = r.get('n.docstring', '')
+                        if doc:
+                            node_ctx += f"\n  doc: {doc[:150]}"
+                        context_parts.append(node_ctx)
+                        refs.append({
+                            "node_id": r.get("n.id", ""),
+                            "label": r.get("n.label", ""),
+                            "type": r.get("n.type", ""),
+                            "file_path": r.get("n.file_path", ""),
+                            "line_number": r.get("n.line_number", 0),
+                            "score": 0.3,
+                        })
+                    context = "\n\n".join(context_parts)
         except Exception:
             pass  # context is best-effort
 
