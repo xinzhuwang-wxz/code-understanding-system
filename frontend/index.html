@@ -41,13 +41,14 @@
         </div>
 
         <div class="sidebar-section">
+            <h2 class="section-title">🔍 CODE SEARCH</h2>
             <div style="display:flex;gap:4px;align-items:center;">
                 <input
                     type="text"
                     id="search-input"
                     class="text-input"
-                    placeholder="Search code..."
-                    aria-label="Search code"
+                    placeholder="function, class, file name..."
+                    aria-label="Search code symbols by name"
                     style="flex:1;"
                 >
                 <button id="search-btn" class="btn-icon" style="float:none;margin:0;padding:6px 10px;" aria-label="Execute search">🔍</button>
@@ -55,18 +56,20 @@
         </div>
 
         <div class="sidebar-section" id="ai-ask-section">
-            <div style="display:flex;gap:4px;align-items:flex-start;">
-                <textarea
-                    id="ai-ask-input"
-                    class="text-input"
-                    placeholder="Ask AI about this codebase..."
-                    rows="2"
-                    aria-label="AI natural language search"
-                    style="flex:1;resize:vertical;font-size:11px;"
-                ></textarea>
-                <button id="ai-ask-btn" class="btn-primary" style="padding:6px 10px;font-size:11px;flex-shrink:0;" aria-label="Ask AI">✨ Ask</button>
+            <h2 class="section-title">✨ AI ASK <span style="font-size:9px;color:var(--text-muted);font-weight:400;">natural language</span></h2>
+            <textarea
+                id="ai-ask-input"
+                class="text-input"
+                placeholder="e.g. 'How does training handle GPU memory?' or 'What are the main entry points?'"
+                rows="3"
+                aria-label="Ask AI about codebase"
+                style="width:100%;resize:vertical;font-size:11px;line-height:1.4;margin-bottom:6px;"
+            ></textarea>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <button id="ai-ask-btn" class="btn-primary" style="flex:1;padding:7px 12px;font-size:12px;" aria-label="Ask AI">✨ Ask Question</button>
+                <span style="font-size:9px;color:var(--text-muted);">Cmd+Enter</span>
             </div>
-            <div id="ai-answer" style="display:none;margin-top:6px;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:11px;color:#c9d1d9;max-height:200px;overflow-y:auto;line-height:1.5;"></div>
+            <div id="ai-answer" style="display:none;margin-top:8px;padding:10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;font-size:11px;color:#c9d1d9;max-height:300px;overflow-y:auto;line-height:1.6;"></div>
         </div>
 
         <div class="sidebar-section" id="node-types-section" style="display:none;">

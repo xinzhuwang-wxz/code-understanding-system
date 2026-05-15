@@ -73,11 +73,23 @@ class SidebarController {
         const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
         for (const [type, count] of sorted) {
             const color = colors[type] || "#90a4ae";
-            const row = this._createFilterRow(type, color, count, true, (checked) => {
+            const label = this._edgeTypeLabel(type);
+            const row = this._createFilterRow(label, color, count, true, (checked) => {
                 this.graph.setEdgeTypeVisibility(type, checked);
             });
             this.edgeTypesList.appendChild(row);
         }
+    }
+
+    _edgeTypeLabel(raw) {
+        const map = {
+            calls: "calls →", imports: "imports →", contains: "contains →",
+            inherits: "inherits →", invokes: "invokes →", references: "references →",
+            decorates: "decorates →", handles: "handles →", depends_on: "depends on →",
+            reads: "reads →", writes: "writes →", extends: "extends →",
+            implements: "implements →", data_flows_to: "flows to →",
+        };
+        return map[raw] || raw;
     }
 
     _createFilterRow(label, color, count, checked, onChange) {
@@ -307,44 +319,34 @@ class SidebarController {
         answerEl.innerHTML = '<span style="color:#58a6ff;">✨ Thinking...</span>';
 
         try {
-            const resp = await fetch("/api/explain", {
+            const resp = await fetch("/api/ask", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ node_id: question }),
+                body: JSON.stringify({ question, max_context: 5 }),
             });
-            // Also search first for context
-            const searchResp = await fetch("/api/search", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ query: question, node_type: "", max_results: 3 }),
-            });
-            const searchData = await searchResp.json();
-
-            // Then ask the LLM directly
-            const mcpResp = await fetch("/api/impact", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ node_id: question }),
-            });
-            const explainData = await resp.json();
+            const data = await resp.json();
 
             let html = `<div style="margin-bottom:8px;color:#58a6ff;font-weight:600;">🤖 AI Response</div>`;
-            html += `<div style="margin-bottom:8px;">${explainData.explanation || 'No explanation available.'}</div>`;
+            html += `<div style="margin-bottom:12px;line-height:1.6;">${data.answer || 'No answer available.'}</div>`;
 
-            if (searchData.results && searchData.results.length > 0) {
-                html += `<div style="margin-bottom:4px;color:#8b949e;font-size:10px;">📎 Related code (${searchData.results.length} results):</div>`;
-                for (const r of searchData.results.slice(0, 3)) {
-                    html += `<div style="font-size:10px;padding:2px 0;color:#6e7681;">${this._esc(r.label)} @ ${this._esc(r.file_path)}:${r.line_number}</div>`;
+            if (data.references && data.references.length > 0) {
+                html += `<div style="margin-bottom:4px;color:#8b949e;font-size:10px;">📎 Related code (${data.references.length}):</div>`;
+                for (const r of data.references.slice(0, 5)) {
+                    html += `<div class="ai-ref" style="font-size:10px;padding:2px 0;color:#6e7681;cursor:pointer;"`;
+                    html += ` onclick="window.codeKG.showNode('${this._esc(r.node_id)}')">`;
+                    html += `${this._esc(r.label)} <span style="color:#484f58;">@ ${this._esc(r.file_path)}:${r.line_number}</span>`;
+                    html += r.score ? ` <span style="color:#58a6ff;font-size:9px;">${r.score.toFixed(2)}</span>` : '';
+                    html += `</div>`;
                 }
             }
 
             answerEl.innerHTML = html;
 
             if (window.agentTrace) {
-                window.agentTrace.trace('search', { query: question, results: searchData.total || 0 });
+                window.agentTrace.trace('ai_ask', { question, references: data.references?.length || 0 });
             }
             if (window.breadcrumb) {
-                window.breadcrumb.pushSearch(question);
+                window.breadcrumb.pushSearch(`AI: ${question.substring(0, 40)}`);
             }
         } catch (err) {
             answerEl.innerHTML = `<div style="color:#f85149;">AI Ask failed: ${err.message}</div>`;

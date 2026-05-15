@@ -1154,6 +1154,76 @@ html, body {
     white-space: pre-wrap;
 }
 
+.dp-md-code {
+    display: block;
+    margin: 4px 0;
+    padding: 6px 10px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 3px;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.dp-md-inline {
+    padding: 1px 5px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 3px;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+}
+
+.dp-conv-section {
+    margin-top: 6px;
+    font-size: 12px;
+}
+
+.dp-conv-item {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 1px 0;
+}
+
+.dp-conv-key {
+    color: #58a6ff;
+    flex-shrink: 0;
+}
+
+.dp-conv-val {
+    color: #8b949e;
+}
+
+.dp-conv-list {
+    margin: 2px 0 2px 16px;
+    padding: 0;
+    font-size: 11px;
+    color: #c9d1d9;
+    list-style: disc;
+}
+
+.dp-conv-list li {
+    padding: 1px 0;
+    line-height: 1.5;
+}
+
+.dp-conv-text {
+    font-size: 11px;
+    color: #8b949e;
+    padding: 1px 0;
+}
+
+.dp-conv-empty {
+    color: #484f58;
+    font-style: italic;
+    font-size: 11px;
+}
+
 .dp-ai-error {
     color: #ff6b6b;
     font-size: 12px;

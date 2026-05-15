@@ -98,7 +98,9 @@ async def analyze(req: AnalyzeRequest):
     try:
         from memory.store import load_conventions, save_conventions
         from search.llm import get_llm
-        if not load_conventions() and get_llm().available:
+        # Always clear stale conventions before re-generating
+        save_conventions("")
+        if get_llm().available:
             from graph.kuzu_store import KnowledgeGraph, get_default_db_path
             db_path = get_default_db_path()
             if db_path.exists():
@@ -179,9 +181,9 @@ async def explain(req: ExplainRequest):
             "MATCH (n:Node {id: $id}) RETURN n.label, n.signature, n.docstring, n.type, n.file_path, n.line_number",
             {"id": req.node_id},
         )
-        kg.close()
 
         if not nodes:
+            kg.close()
             return {"explanation": "Node not found.", "node_id": req.node_id}
 
         n = nodes[0]
@@ -192,11 +194,27 @@ async def explain(req: ExplainRequest):
         file_path = n.get("n.file_path", "")
         llm = get_llm()
 
+        # ── Gather neighbor context from the knowledge graph ──
+        neighbors_text = ""
+        try:
+            neighbors = kg.get_neighbors(req.node_id, direction="both", limit=8)
+            if neighbors:
+                n_parts = []
+                for nb in neighbors[:8]:
+                    nb_label = nb.get("label", "?")
+                    nb_type = nb.get("type", "?")
+                    nb_file = nb.get("file_path", "")
+                    n_parts.append(f"  - {nb_label} ({nb_type}) @ {nb_file}")
+                neighbors_text = "Connected to:\n" + "\n".join(n_parts)
+        except Exception:
+            pass
+
+        kg.close()
+
         # For file/module nodes with no code context, try reading source
         extra_context = ""
         if (not sig or not doc) and file_path:
             from pathlib import Path
-            # Try repo_root from recent analysis memory or common locations
             possible_roots = [
                 Path("/Users/bamboo/Githubs"),
                 Path.home() / "Githubs",
@@ -212,19 +230,27 @@ async def explain(req: ExplainRequest):
                         pass
 
         # Build context for LLM
-        context_parts = [f"Symbol: {label}"]
+        context_parts = [f"Symbol: {label} (type: {ntype})"]
         if sig:
             context_parts.append(f"Signature: {sig}")
         if doc:
             context_parts.append(f"Docstring: {doc}")
+        if neighbors_text:
+            context_parts.append(neighbors_text)
         if extra_context:
             context_parts.append(f"Source (first 3000 chars):\n{extra_context}")
-        context = "\n".join(context_parts)
+        context = "\n\n".join(context_parts)
 
         explanation = ""
         if llm.available:
             explanation = llm.chat([
-                {"role": "system", "content": "You are a code explanation assistant. Explain what this code does in 2-4 sentences. If it's a file, describe its purpose and what modules/functions it contains. Be specific and reference the actual code shown."},
+                {"role": "system", "content": (
+                    "You are a code explanation assistant. Explain what this code does "
+                    "in 2-4 sentences. Reference its connections to other code elements "
+                    "(if provided) to explain its role in the wider codebase. "
+                    "If it's a file, describe its purpose and key contents. "
+                    "Be specific. Output in plain English, no markdown formatting."
+                )},
                 {"role": "user", "content": f"Explain this code:\n\n{context}"},
             ], max_tokens=384)
 
@@ -328,6 +354,12 @@ async def clear_data() -> dict[str, Any]:
             cleared = True
 
         reset_search_engine()
+        # Also clear stale conventions
+        try:
+            from memory.store import save_conventions
+            save_conventions("")
+        except Exception:
+            pass
         return {"status": "cleared", "database": str(db_path), "cleared": cleared}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -367,6 +399,7 @@ async def capabilities():
             },
             "llm": {
                 "explain": "/api/explain — AI-powered code explanation (requires DEEPSEEK_API_KEY)",
+                "ask": "/api/ask — Natural language Q&A about the codebase",
                 "conventions": "/api/conventions — extract coding conventions",
                 "impact_summary": "/api/diff → returns LLM-generated impact summaries",
             },
@@ -702,6 +735,72 @@ async def suggested_questions(req: QuestionsRequest):
         from review.tour import generate_questions
         questions = generate_questions(req.repo_path, req.max_questions)
         return {"questions": questions, "total": len(questions)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── AI Ask (Natural Language Q&A) ──────────────────────────────
+
+class AskRequest(BaseModel):
+    question: str
+    repo_path: str = ""
+    max_context: int = 3
+
+
+@app.post("/api/ask")
+async def ask_ai(req: AskRequest) -> dict[str, Any]:
+    """Ask a natural language question about the codebase using LLM.
+
+    Searches the knowledge graph for relevant context, then feeds it to
+    the LLM for a concise answer with code references.
+    """
+    try:
+        from search.llm import get_llm
+        llm = get_llm()
+        if not llm.available:
+            return {
+                "question": req.question,
+                "answer": "LLM unavailable. Set DEEPSEEK_API_KEY in .env to enable AI-powered Q&A.",
+                "references": [],
+                "mode": "fallback",
+            }
+
+        # Search for relevant context from the knowledge graph
+        context = ""
+        refs: list[dict[str, Any]] = []
+        try:
+            from search.engine import get_search_engine
+            engine = get_search_engine()
+            search_resp = engine.search(req.question, node_type="", max_results=req.max_context)
+            results = search_resp.results
+            if results:
+                context_parts = []
+                for r in results:
+                    node_ctx = f"[{r.label}] ({r.node_type} @ {r.file_path}:{r.line_number})"
+                    if r.signature:
+                        node_ctx += f"\n  sig: {r.signature}"
+                    if r.docstring:
+                        node_ctx += f"\n  doc: {r.docstring[:200]}"
+                    context_parts.append(node_ctx)
+                    refs.append({
+                        "node_id": r.node_id,
+                        "label": r.label,
+                        "type": r.node_type,
+                        "file_path": r.file_path,
+                        "line_number": r.line_number,
+                        "score": r.score,
+                    })
+                context = "\n\n".join(context_parts)
+        except Exception:
+            pass  # context is best-effort
+
+        answer = llm.answer_question(req.question, context[:6000])
+        return {
+            "question": req.question,
+            "answer": answer,
+            "references": refs,
+            "mode": "llm",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -740,7 +740,7 @@ class DetailPanel {
 
         const container = document.createElement("div");
         container.className = "dp-ai-container";
-        container.innerHTML = `<div class="dp-ai-loading">Loading explanation for <strong>${this._esc(node.label)}</strong>&hellip;</div>`;
+        container.innerHTML = `<div class="dp-ai-loading">Analyzing <strong>${this._esc(node.label)}</strong>&hellip;</div>`;
         section.appendChild(container);
         this.bodyEl.appendChild(section);
 
@@ -751,7 +751,7 @@ class DetailPanel {
                 body: JSON.stringify({ node_id: node.id }),
             });
             if (!resp.ok) {
-                container.innerHTML = `<div class="dp-ai-error">Explanation unavailable (${resp.status}). Set DEEPSEEK_API_KEY for AI-powered explanations.</div>`;
+                container.innerHTML = `<div class="dp-ai-error">Explanation unavailable (${resp.status}).</div>`;
                 return;
             }
             const data = await resp.json();
@@ -759,10 +759,30 @@ class DetailPanel {
                 container.innerHTML = `<div class="dp-ai-empty">No explanation available.</div>`;
                 return;
             }
-            container.innerHTML = `<div class="dp-ai-content">${this._esc(data.explanation)}</div>`;
+            container.innerHTML = `<div class="dp-ai-content">${this._markdownToHtml(data.explanation)}</div>`;
         } catch (err) {
             container.innerHTML = `<div class="dp-ai-error">Failed to load explanation: ${this._esc(err.message)}</div>`;
         }
+    }
+
+    // Simple safe markdown → HTML (bold, italic, inline code, code blocks, line breaks)
+    _markdownToHtml(md) {
+        if (!md) return "";
+        let html = this._esc(md);
+        // Code blocks (```...```)
+        html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="dp-md-code">$2</pre>');
+        // Inline code (`...`)
+        html = html.replace(/`([^`]+)`/g, '<code class="dp-md-inline">$1</code>');
+        // Bold (**...** or __...__)
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        // Italic (*...* or _..._)
+        html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+        html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+        // Line breaks
+        html = html.replace(/\n\n/g, '<br><br>');
+        html = html.replace(/\n/g, '<br>');
+        return html;
     }
 
     // ── Conventions (from LLM) ──
@@ -773,7 +793,7 @@ class DetailPanel {
         const section = this._section("CONVENTIONS");
         const container = document.createElement("div");
         container.className = "dp-conv-container";
-        container.innerHTML = `<div class="dp-conv-loading">Loading conventions&hellip;</div>`;
+        container.innerHTML = `<div class="dp-conv-loading">Extracting patterns&hellip;</div>`;
         section.appendChild(container);
         this.bodyEl.appendChild(section);
 
@@ -784,19 +804,59 @@ class DetailPanel {
                 body: JSON.stringify({ repo_path: this.graphData.repo_path }),
             });
             if (!resp.ok) {
-                container.innerHTML = `<div class="dp-conv-error">Conventions unavailable (${resp.status})</div>`;
+                container.innerHTML = `<div class="dp-conv-error">Unavailable</div>`;
                 return;
             }
             const data = await resp.json();
             const text = data.conventions || data.hint || "";
             if (!text || text.length < 5) {
-                container.innerHTML = `<div class="dp-conv-empty">No conventions extracted yet. Analyze a repo first.</div>`;
+                container.innerHTML = `<div class="dp-conv-empty">No conventions extracted.</div>`;
                 return;
             }
-            container.innerHTML = `<pre class="dp-conv-content">${this._esc(text)}</pre>`;
+            container.innerHTML = `<div class="dp-conv-content">${this._renderConventionsHtml(text)}</div>`;
         } catch (err) {
-            container.innerHTML = `<div class="dp-conv-error">Conventions: ${this._esc(err.message)}</div>`;
+            container.innerHTML = `<div class="dp-conv-error">Error: ${this._esc(err.message)}</div>`;
         }
+    }
+
+    _renderConventionsHtml(yamlText) {
+        // Parse YAML-like structure and render as nested HTML
+        const lines = yamlText.split('\n');
+        let html = '';
+        let inList = false;
+        for (let line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+
+            // Count indent (2-space based)
+            const indent = line.search(/\S/);
+            const depth = Math.floor(indent / 2);
+
+            // Key-value pair
+            const colonIdx = trimmed.indexOf(':');
+            if (colonIdx > 0) {
+                const key = trimmed.substring(0, colonIdx).trim();
+                const val = trimmed.substring(colonIdx + 1).trim();
+                if (val) {
+                    if (inList) { html += '</ul>'; inList = false; }
+                    html += `<div class="dp-conv-item" style="padding-left:${depth * 10}px;">`;
+                    html += `<span class="dp-conv-key">${this._esc(key)}</span>`;
+                    html += `<span class="dp-conv-val">${this._esc(val)}</span>`;
+                    html += `</div>`;
+                } else {
+                    if (inList) { html += '</ul>'; inList = false; }
+                    html += `<div class="dp-conv-section" style="padding-left:${depth * 10}px;font-weight:600;color:#58a6ff;">${this._esc(key)}</div>`;
+                }
+            } else if (trimmed.startsWith('- ')) {
+                if (!inList) { html += '<ul class="dp-conv-list">'; inList = true; }
+                html += `<li>${this._esc(trimmed.substring(2))}</li>`;
+            } else {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += `<div class="dp-conv-text">${this._esc(trimmed)}</div>`;
+            }
+        }
+        if (inList) html += '</ul>';
+        return html || '<div class="dp-conv-empty">No structured conventions found.</div>';
     }
 
     _syntaxHighlightLine(line) {
