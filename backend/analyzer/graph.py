@@ -123,13 +123,28 @@ class Graph:
             self.edges.append(edge)
 
     def resolve_edges(self) -> None:
-        """Remove edges whose source or target doesn't exist in nodes."""
+        """Resolve edges. Source must exist. Missing targets get placeholder ref nodes."""
         valid = []
         node_ids = set(self.nodes.keys())
         seen = set()
         for edge in self.edges:
             key = (edge.source, edge.target, edge.type)
-            if edge.source in node_ids and edge.target in node_ids and key not in seen:
+            if edge.source not in node_ids:
+                continue
+            if edge.target not in node_ids:
+                ref_id = edge.target
+                if not ref_id.startswith("module:") and not ref_id.startswith("class_ref:"):
+                    ref_id = f"ref:{edge.target}"
+                if ref_id not in self.nodes:
+                    ref_kind = {"calls": "function", "imports": "module", "inherits": "class"}
+                    self.nodes[ref_id] = Node(
+                        id=ref_id, label=edge.target,
+                        type=ref_kind.get(edge.type, "unknown"),
+                        file_path="", metadata={"external_ref": True},
+                    )
+                    node_ids.add(ref_id)
+                edge.target = ref_id
+            if key not in seen:
                 valid.append(edge)
                 seen.add(key)
         self.edges = valid

@@ -26,6 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "click>=8.0",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.30",
     "kuzu>=0.11",

@@ -5,11 +5,13 @@ class SidebarController {
     constructor(graphRenderer) {
         this.graph = graphRenderer;
         this.graphData = null;
+        this._onViewChange = null;
 
         this.nodeTypesSection = document.getElementById("node-types-section");
         this.edgeTypesSection = document.getElementById("edge-types-section");
         this.displaySection = document.getElementById("display-options-section");
         this.statsSection = document.getElementById("stats-section");
+        this.viewSelectorSection = document.getElementById("view-selector-section");
 
         this.nodeTypesList = document.getElementById("node-types-list");
         this.edgeTypesList = document.getElementById("edge-types-list");
@@ -18,6 +20,21 @@ class SidebarController {
 
         this._initDisplayToggles();
         this._initSearch();
+        this._initViewSelector();
+    }
+
+    onViewChange(fn) {
+        this._onViewChange = fn;
+    }
+
+    _initViewSelector() {
+        const selector = document.getElementById("view-selector");
+        if (!selector) return;
+        selector.addEventListener("change", () => {
+            if (this._onViewChange) {
+                this._onViewChange(selector.value);
+            }
+        });
     }
 
     populate(graphData) {
@@ -30,6 +47,7 @@ class SidebarController {
         this.edgeTypesSection.style.display = "";
         this.displaySection.style.display = "";
         this.statsSection.style.display = "";
+        if (this.viewSelectorSection) this.viewSelectorSection.style.display = "";
     }
 
     _buildNodeTypeFilters(data) {

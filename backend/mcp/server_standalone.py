@@ -1,7 +1,10 @@
 """
-Self-contained MCP Server — stdio JSON-RPC 2.0, no external SDK required.
+from log import get_logger; logger = get_logger(__name__)
+Self-contained MCP Server — stdio JSON-RPC 2.0, class-based Tool architecture.
 
-Implements the Model Context Protocol directly over stdin/stdout.
+Uses agent-toolkit compatible pattern: Tool base class with __init_subclass__
+auto-registration via ToolRegistry. All tools are in backend/mcp/tool_impls.py.
+
 Compatible with Claude Code, Codex, OpenClaw, Hermes Agent, and any
 MCP-compliant client.
 
@@ -22,304 +25,10 @@ _backend_dir = Path(__file__).resolve().parent.parent
 if str(_backend_dir) not in sys.path:
     sys.path.insert(0, str(_backend_dir))
 
+# ─── Load all tools (auto-registered via __init_subclass__) ─────────
 
-# ─── Tool Implementations ──────────────────────────────────────────
-
-def tool_list_tools() -> list[dict]:
-    """List all available tools."""
-    return [
-        {
-            "name": "search_by_pattern",
-            "description": "Search code symbols by name pattern (exact/BM25).",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query."},
-                    "node_type": {"type": "string", "default": "function"},
-                    "max_results": {"type": "integer", "default": 20},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "search_semantic",
-            "description": "Semantic code search using natural language.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Natural language query."},
-                    "max_results": {"type": "integer", "default": 20},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "traverse_graph",
-            "description": "Traverse code knowledge graph — explore dependencies, callers, callees.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "node_id": {"type": "string", "description": "Node ID."},
-                    "hops": {"type": "integer", "default": 2},
-                },
-                "required": ["node_id"],
-            },
-        },
-        {
-            "name": "get_conventions",
-            "description": "Get coding conventions (.agent-conventions.yaml).",
-            "inputSchema": {"type": "object", "properties": {}, "required": []},
-        },
-        {
-            "name": "get_context",
-            "description": "Get code context for a task — conventions, related functions, recent changes.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "task_description": {"type": "string"},
-                    "current_file": {"type": "string", "default": ""},
-                    "max_tokens": {"type": "integer", "default": 4000},
-                },
-                "required": ["task_description"],
-            },
-        },
-        {
-            "name": "ask_question",
-            "description": "Ask a natural language question about the codebase.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"question": {"type": "string"}},
-                "required": ["question"],
-            },
-        },
-        {
-            "name": "analyze_impact",
-            "description": "Analyze impact of a git diff or code entity change. "
-            "Pass node_id for entity-level, or repo_path+commit_range for git diff.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "node_id": {"type": "string", "description": "Node ID for entity-level impact."},
-                    "repo_path": {"type": "string", "description": "Repo path for git diff analysis."},
-                    "commit_range": {"type": "string", "default": "HEAD~1..HEAD",
-                                     "description": "Git commit range."},
-                },
-            },
-        },
-        {
-            "name": "search_docs",
-            "description": "Search documentation — Markdown files, source comments, API docs.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query."},
-                    "max_results": {"type": "integer", "default": 20},
-                },
-                "required": ["query"],
-            },
-        },
-    ]
-
-
-def call_tool(name: str, arguments: dict) -> Any:
-    """Route tool call to the appropriate handler."""
-    if name == "search_by_pattern":
-        return _search_by_pattern(**arguments)
-    elif name == "search_semantic":
-        return _search_semantic(**arguments)
-    elif name == "traverse_graph":
-        return _traverse_graph(**arguments)
-    elif name == "get_conventions":
-        return _get_conventions()
-    elif name == "get_context":
-        return _get_context(**arguments)
-    elif name == "ask_question":
-        return _ask_question(**arguments)
-    elif name == "analyze_impact":
-        return _analyze_impact(arguments)
-    elif name == "search_docs":
-        return _search_docs(**arguments)
-    else:
-        return {"error": f"Unknown tool: {name}"}
-
-
-# ─── Tool Handlers ─────────────────────────────────────────────────
-
-def _search_by_pattern(query: str, node_type: str = "function", max_results: int = 20) -> dict:
-    from graph.kuzu_store import KnowledgeGraph
-    db_path = Path.home() / ".code-kg" / "graph"
-    if not db_path.exists():
-        return {"results": [], "error": "No graph database. Analyze a repo first."}
-    kg = KnowledgeGraph(str(db_path))
-    results = kg.search_by_pattern(node_type, query)
-    kg.close()
-    return {
-        "results": [
-            {"id": r["n.id"], "label": r["n.label"], "type": r["n.type"],
-             "file": r["n.file_path"], "line": r["n.line_number"],
-             "signature": r.get("n.signature", ""),
-             "docstring": r.get("n.docstring", "")}
-            for r in results[:max_results]
-        ],
-        "total": len(results),
-    }
-
-
-def _search_semantic(query: str, max_results: int = 20) -> dict:
-    from graph.kuzu_store import KnowledgeGraph
-    db_path = Path.home() / ".code-kg" / "graph"
-    if not db_path.exists():
-        return {"results": [], "error": "No graph database."}
-    kg = KnowledgeGraph(str(db_path))
-    # Fallback to pattern search
-    results = kg.search_by_pattern("", query)
-    kg.close()
-    return {
-        "results": [
-            {"id": r["n.id"], "label": r["n.label"], "type": r["n.type"],
-             "file": r["n.file_path"], "line": r["n.line_number"],
-             "signature": r.get("n.signature", ""),
-             "docstring": r.get("n.docstring", "")}
-            for r in results[:max_results]
-        ],
-        "total": len(results),
-    }
-
-
-def _traverse_graph(node_id: str, hops: int = 2) -> dict:
-    from graph.kuzu_store import KnowledgeGraph
-    db_path = Path.home() / ".code-kg" / "graph"
-    if not db_path.exists():
-        return {"neighbors": [], "error": "No graph database."}
-    kg = KnowledgeGraph(str(db_path))
-    neighbors = kg.traverse_neighbors(node_id, min(hops, 5))
-    impact = kg.impact_analysis(node_id)
-    kg.close()
-    return {
-        "node_id": node_id,
-        "neighbors": neighbors,
-        "dependents": impact.get("dependents", []),
-        "dependencies": impact.get("dependencies", []),
-        "total_affected": impact.get("total_affected", 0),
-    }
-
-
-def _get_conventions() -> dict:
-    from memory.store import load_conventions
-    content = load_conventions()
-    return {"conventions": content, "source": "stored" if content else "none"}
-
-
-def _get_context(task_description: str, current_file: str = "", max_tokens: int = 4000) -> dict:
-    from memory.store import load_conventions, get_recent_episodes
-    from graph.kuzu_store import KnowledgeGraph
-
-    conventions = load_conventions()
-    db_path = Path.home() / ".code-kg" / "graph"
-
-    related_functions = []
-    if db_path.exists():
-        kg = KnowledgeGraph(str(db_path))
-        keywords = task_description.split()
-        for kw in keywords[:3]:
-            if len(kw) > 2:
-                results = kg.search_by_pattern("function", kw)
-                for r in results[:5]:
-                    related_functions.append({
-                        "name": r["n.label"],
-                        "signature": r.get("n.signature", ""),
-                        "file": r["n.file_path"],
-                        "line": r["n.line_number"],
-                        "docstring": r.get("n.docstring", ""),
-                    })
-        kg.close()
-
-    recent = get_recent_episodes(30)
-    return {
-        "task": task_description,
-        "current_file": current_file,
-        "conventions": conventions,
-        "related_functions": related_functions[:15],
-        "recent_changes": [
-            {"date": e["date"], "type": e["type"], "description": e["description"]}
-            for e in recent if e["type"] == "change"
-        ][:10],
-    }
-
-
-def _ask_question(question: str) -> dict:
-    from search.llm import get_llm
-    from graph.kuzu_store import KnowledgeGraph
-
-    db_path = Path.home() / ".code-kg" / "graph"
-    context = ""
-    if db_path.exists():
-        kg = KnowledgeGraph(str(db_path))
-        keywords = [w for w in question.split() if len(w) > 2]
-        if keywords:
-            results = kg.search_by_pattern("", keywords[0])
-            context = "\n".join(
-                f"- {r['n.label']} ({r['n.type']}) @ {r['n.file_path']}:{r['n.line_number']}"
-                for r in results[:10]
-            )
-        kg.close()
-
-    llm = get_llm()
-    if llm.available:
-        answer = llm.answer_question(question, context)
-        return {"question": question, "answer": answer, "source": "llm"}
-    return {"question": question, "answer": f"LLM unavailable.\nRelevant code:\n{context[:1000]}", "source": "search"}
-
-
-def _analyze_impact(arguments: dict) -> dict:
-    """Analyze impact — either by node_id (graph) or repo_path (git diff)."""
-    node_id = arguments.get("node_id", "")
-    repo_path = arguments.get("repo_path", "")
-    commit_range = arguments.get("commit_range", "HEAD~1..HEAD")
-
-    # Git diff mode
-    if repo_path:
-        from impact.analyzer import DiffAnalyzer
-        analyzer = DiffAnalyzer(repo_path=repo_path)
-        result = analyzer.analyze(commit_range=commit_range)
-        return {
-            "mode": "git_diff",
-            "commit_range": commit_range,
-            "changed_files": result.changed_files,
-            "changed_entities": [
-                {"name": e.entity_name, "type": e.entity_type,
-                 "file": e.file_path, "change": e.change_type}
-                for e in result.changed_entities
-            ],
-            "direct_dependents": result.direct_dependents,
-            "cascading_impact": result.cascading_impact,
-            "total_affected_files": result.total_affected_files,
-            "related_tests": result.related_tests,
-            "summary": result.summary,
-            "risk_level": result.risk_level,
-            "diff_summary": result.diff_summary,
-        }
-
-    # Entity mode (existing)
-    if node_id:
-        from graph.kuzu_store import KnowledgeGraph
-        db_path = Path.home() / ".code-kg" / "graph"
-        if not db_path.exists():
-            return {"error": "No graph database."}
-        kg = KnowledgeGraph(str(db_path))
-        impact = kg.impact_analysis(node_id)
-        kg.close()
-        return {"mode": "entity", "node_id": node_id, **impact}
-
-    return {"error": "Provide node_id or repo_path."}
-
-
-def _search_docs(query: str, max_results: int = 20) -> dict:
-    """Search documentation index."""
-    from search.doc_indexer import DocIndexer
-    indexer = DocIndexer()
-    results = indexer.search_docs(query, max_results)
-    return {"results": results, "total": len(results)}
+from mcp.tools import ToolRegistry  # noqa: E402
+import mcp.tool_impls  # noqa: E402, F401 — triggers Tool registration
 
 
 # ─── JSON-RPC 2.0 Server ───────────────────────────────────────────
@@ -348,8 +57,8 @@ def _send_error(id_val: Any, code: int, message: str) -> None:
 
 def main() -> None:
     """Main MCP server loop — reads JSON-RPC from stdin, writes to stdout."""
-    # Log to stderr so stdout stays clean for JSON-RPC
-    print("[code-kg MCP] Server starting on stdio...", file=sys.stderr, flush=True)
+    tool_count = len(ToolRegistry._tools)
+    print(f"[code-kg MCP] Server starting on stdio... ({tool_count} tools registered)", file=sys.stderr, flush=True)
 
     for line in sys.stdin:
         line = line.strip()
@@ -367,11 +76,11 @@ def main() -> None:
 
         try:
             if method == "tools/list":
-                _send_response(req_id, {"tools": tool_list_tools()})
+                _send_response(req_id, {"tools": ToolRegistry.list_tools()})
             elif method == "tools/call":
                 tool_name = params.get("name", "")
                 tool_args = params.get("arguments", {})
-                result = call_tool(tool_name, tool_args)
+                result = ToolRegistry.call(tool_name, tool_args)
                 _send_response(req_id, {
                     "content": [
                         {"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}
@@ -380,7 +89,7 @@ def main() -> None:
             elif method == "initialize":
                 _send_response(req_id, {
                     "protocolVersion": "2024-11-05",
-                    "serverInfo": {"name": "code-kg", "version": "0.2.0"},
+                    "serverInfo": {"name": "code-kg", "version": "0.3.0"},
                     "capabilities": {"tools": {}},
                 })
             elif method == "notifications/initialized":

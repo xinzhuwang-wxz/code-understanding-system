@@ -1,4 +1,5 @@
 """
+from log import get_logger; logger = get_logger(__name__)
 Tree-sitter based universal code parser.
 
 Replaces the existing language-specific analyzers with a unified
@@ -278,7 +279,7 @@ class TreeSitterParser:
             self._language_cache[lang_name] = lang
             return lang
         except (ImportError, Exception) as e:
-            print(f"  ⚠ tree-sitter grammar for '{lang_name}' not available: {e}")
+            logger.warning(f"tree-sitter grammar for '{lang_name}' not available: {e}")
             return None
 
     def _get_parser(self, lang_name: str) -> Any | None:
@@ -287,7 +288,7 @@ class TreeSitterParser:
             import tree_sitter_languages
             return tree_sitter_languages.get_parser(lang_name)
         except (ImportError, Exception) as e:
-            print(f"  ⚠ tree-sitter parser for '{lang_name}' not available: {e}")
+            logger.warning(f"tree-sitter parser for '{lang_name}' not available: {e}")
             return None
 
     def parse_file(self, file_path: str, content: str = "") -> tuple[

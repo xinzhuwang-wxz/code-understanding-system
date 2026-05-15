@@ -6,6 +6,8 @@
     <title>CodeKG</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
     <aside id="sidebar" aria-label="Controls sidebar">
@@ -57,6 +59,19 @@
             <div id="edge-types-list" class="filter-list" aria-label="Edge type filters"></div>
         </div>
 
+        <div class="sidebar-section" id="view-selector-section">
+            <h2 class="section-title">VIEW</h2>
+            <select id="view-selector" class="view-selector" aria-label="Select visualization view">
+                <option value="force">Force Graph</option>
+                <option value="tree">Tree View</option>
+                <option value="matrix">Matrix View</option>
+                <option value="sunburst">Sunburst View</option>
+                <option value="codecity">Code City 3D</option>
+                <option value="metro">Metro Map</option>
+                <option value="codepanel">Code Panel</option>
+            </select>
+        </div>
+
         <div class="sidebar-section" id="display-options-section" style="display:none;">
             <h2 class="section-title">DISPLAY OPTIONS</h2>
             <div class="toggle-row">
@@ -89,7 +104,15 @@
     </aside>
 
     <main id="graph-container" aria-label="Code graph visualization">
-        <canvas id="graph-canvas"></canvas>
+        <div id="view-force" class="view-panel">
+            <canvas id="graph-canvas"></canvas>
+        </div>
+        <div id="view-tree" class="view-panel" style="display:none;"></div>
+        <div id="view-matrix" class="view-panel" style="display:none;"></div>
+        <div id="view-sunburst" class="view-panel" style="display:none;"></div>
+        <div id="view-codecity" class="view-panel" style="display:none;"></div>
+        <div id="view-metro" class="view-panel" style="display:none;"></div>
+        <div id="view-codepanel" class="view-panel" style="display:none; background:#1e1e1e;"></div>
         <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
         <div id="loading-overlay" class="loading-overlay" style="display:none;" aria-label="Loading indicator">
             <div class="spinner"></div>
@@ -120,6 +143,12 @@
     </div>
 
     <script src="/static/js/graph.js"></script>
+    <script src="/static/js/views/tree-view.js"></script>
+    <script src="/static/js/views/matrix-view.js"></script>
+    <script src="/static/js/views/sunburst-view.js"></script>
+    <script src="/static/js/views/codecity-view.js"></script>
+    <script src="/static/js/views/metro-view.js"></script>
+    <script src="/static/js/code-panel.js"></script>
     <script src="/static/js/sidebar.js"></script>
     <script src="/static/js/detail-panel.js"></script>
     <script src="/static/js/app.js"></script>

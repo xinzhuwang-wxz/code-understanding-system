@@ -130,13 +130,18 @@ class PythonAnalyzer:
             elif "util" in node.name.lower() or "helper" in node.name.lower():
                 node_type = "utility"
 
+            docstring = ast.get_docstring(node)
+            metadata = {"bases": bases, "decorators": decorators}
+            if docstring:
+                metadata["docstring"] = docstring
+
             graph.add_node(Node(
                 id=class_id,
                 label=node.name,
                 type=node_type,
                 file_path=file_info["rel_path"],
                 line_number=node.lineno,
-                metadata={"bases": bases, "decorators": decorators},
+                metadata=metadata,
             ))
             graph.add_edge(Edge(source=file_id, target=class_id, type="uses"))
 
@@ -183,13 +188,18 @@ class PythonAnalyzer:
             else:
                 node_type = "function"
 
+            docstring = ast.get_docstring(node)
+            metadata = {"decorators": decorators, "is_async": isinstance(node, ast.AsyncFunctionDef)}
+            if docstring:
+                metadata["docstring"] = docstring
+
             graph.add_node(Node(
                 id=func_id,
                 label=node.name,
                 type=node_type,
                 file_path=file_info["rel_path"],
                 line_number=node.lineno,
-                metadata={"decorators": decorators, "is_async": isinstance(node, ast.AsyncFunctionDef)},
+                metadata=metadata,
             ))
             graph.add_edge(Edge(source=file_id, target=func_id, type="uses"))
 
@@ -214,9 +224,18 @@ class PythonAnalyzer:
                     ))
 
     def _extract_calls(self, tree: ast.Module, file_info: dict, file_id: str, graph: Graph, source: str) -> None:
+        # Build class line ranges for self-call resolution
+        class_ranges: dict[str, tuple[int, int]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                end_line = node.end_lineno if hasattr(node, "end_lineno") and node.end_lineno else 99999
+                class_ranges[node.name] = (node.lineno, end_line)
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
+
+            line_number = node.lineno
 
             if isinstance(node.func, ast.Attribute):
                 method = node.func.attr
@@ -229,14 +248,14 @@ class PythonAnalyzer:
                         source=file_id,
                         target=file_id,
                         type="db_read",
-                        metadata={"method": method, "object": obj_name},
+                        metadata={"method": method, "object": obj_name, "line_number": line_number},
                     ))
                 elif method in DB_WRITE_METHODS:
                     graph.add_edge_deferred(Edge(
                         source=file_id,
                         target=file_id,
                         type="db_write",
-                        metadata={"method": method, "object": obj_name},
+                        metadata={"method": method, "object": obj_name, "line_number": line_number},
                     ))
 
                 if obj_name in API_CALL_MODULES and method in API_CALL_NAMES:
@@ -244,18 +263,66 @@ class PythonAnalyzer:
                         source=file_id,
                         target=file_id,
                         type="api_call",
-                        metadata={"method": method, "module": obj_name},
+                        metadata={"method": method, "module": obj_name, "line_number": line_number},
                     ))
+
+                # Self.method() creates INVOKES edges for intra-class method calls
+                if obj_name == "self":
+                    enclosing_class = self._find_enclosing_class(node.lineno, class_ranges)
+                    if enclosing_class:
+                        method_ref_id = f"method_ref:{file_info['rel_path']}:{enclosing_class}.{method}"
+                        graph.add_node(Node(
+                            id=method_ref_id,
+                            label=f"{enclosing_class}.{method}",
+                            type="method",
+                            file_path=file_info["rel_path"],
+                            metadata={"external_ref": True},
+                        ))
+                        graph.add_edge_deferred(Edge(
+                            source=file_id,
+                            target=method_ref_id,
+                            type="invokes",
+                            metadata={
+                                "method": method,
+                                "class": enclosing_class,
+                                "line_number": line_number,
+                            },
+                        ))
 
             elif isinstance(node.func, ast.Name):
                 func_name = node.func.id
+
                 if func_name in ("fetch", "urlopen"):
                     graph.add_edge_deferred(Edge(
                         source=file_id,
                         target=file_id,
                         type="api_call",
-                        metadata={"function": func_name},
+                        metadata={"function": func_name, "line_number": line_number},
                     ))
+
+                # Create INVOKES edge for all function calls (resolution happens later)
+                func_ref_id = f"function_ref:{func_name}"
+                graph.add_node(Node(
+                    id=func_ref_id,
+                    label=func_name,
+                    type="function",
+                    file_path="",
+                    metadata={"external_ref": True},
+                ))
+                graph.add_edge_deferred(Edge(
+                    source=file_id,
+                    target=func_ref_id,
+                    type="invokes",
+                    metadata={"function": func_name, "line_number": line_number},
+                ))
+
+    @staticmethod
+    def _find_enclosing_class(line: int, class_ranges: dict[str, tuple[int, int]]) -> str | None:
+        """Find the class name that encloses the given line number."""
+        for class_name, (start, end) in class_ranges.items():
+            if start <= line <= end:
+                return class_name
+        return None
 
     def _guess_http_method(self, decorators: list[str]) -> str:
         for d in decorators:

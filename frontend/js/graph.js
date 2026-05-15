@@ -26,6 +26,10 @@ class GraphRenderer {
         this.hoveredNode = null;
         this.searchMatches = new Set();
 
+        // Dependency path highlighting (colored edges)
+        this.highlightedPathUpstream = new Set();   // caller chain node IDs
+        this.highlightedPathDownstream = new Set();  // callee chain node IDs
+
         this.transform = d3.zoomIdentity;
         this.simulation = null;
         this.dpr = window.devicePixelRatio || 1;
@@ -166,6 +170,8 @@ class GraphRenderer {
         this.searchMatches = new Set();
         this.hiddenNodeTypes = new Set();
         this.hiddenEdgeTypes = new Set();
+        this.highlightedPathUpstream = new Set();
+        this.highlightedPathDownstream = new Set();
 
         this._applyFilters();
         this._buildSimulation();
@@ -270,6 +276,7 @@ class GraphRenderer {
 
     _drawEdges(ctx, highlightNeighbors) {
         const hasHighlight = this.highlightedNodeId !== null;
+        const hasPathHighlight = this.highlightedPathUpstream.size > 0 || this.highlightedPathDownstream.size > 0;
 
         for (const e of this.visibleEdges) {
             const src = typeof e.source === "object" ? e.source : this.nodeMap[e.source];
@@ -280,14 +287,51 @@ class GraphRenderer {
             const tgtId = tgt.id || e.target;
             const isNeighbor = highlightNeighbors.has(srcId) && highlightNeighbors.has(tgtId);
 
-            const color = this.edgeColors[e.type] || "#4fc3f7";
-            let alpha = hasHighlight ? (isNeighbor ? 0.8 : 0.03) : 0.18;
-            let lineWidth = isNeighbor ? 1.8 : 0.5;
+            // Determine path-based coloring: upstream (callers, amber) vs downstream (callees, cyan)
+            let pathColor = null;
+            let isPathEdge = false;
+            if (hasPathHighlight) {
+                const srcUp = this.highlightedPathUpstream.has(srcId);
+                const tgtUp = this.highlightedPathUpstream.has(tgtId);
+                const srcDown = this.highlightedPathDownstream.has(srcId);
+                const tgtDown = this.highlightedPathDownstream.has(tgtId);
+                const centerId = this.highlightedNodeId;
+                const hasCenter = srcId === centerId || tgtId === centerId;
 
-            if (isNeighbor) {
+                // Upstream path edge: both nodes in upstream set, or one is center + other upstream
+                if ((srcUp && tgtUp) || (hasCenter && (srcUp || tgtUp))) {
+                    pathColor = this._brighten(this.edgeColors[e.type] || "#ff9800", 30);
+                    // Use a warm amber for caller chain edges
+                    if (!this.edgeColors[e.type]) pathColor = "#ff9800";
+                    isPathEdge = true;
+                }
+                // Downstream path edge: both nodes in downstream set, or one is center + other downstream
+                else if ((srcDown && tgtDown) || (hasCenter && (srcDown || tgtDown))) {
+                    pathColor = this._brighten(this.edgeColors[e.type] || "#00bcd4", 30);
+                    if (!this.edgeColors[e.type]) pathColor = "#00bcd4";
+                    isPathEdge = true;
+                }
+            }
+
+            const color = pathColor || this.edgeColors[e.type] || "#4fc3f7";
+            let alpha, lineWidth;
+
+            if (isPathEdge) {
+                alpha = 0.9;
+                lineWidth = 2.2;
+            } else if (hasPathHighlight) {
+                // Path highlighting is active but this edge isn't on the path — dim it
+                alpha = 0.03;
+                lineWidth = 0.5;
+            } else {
+                alpha = hasHighlight ? (isNeighbor ? 0.8 : 0.03) : 0.18;
+                lineWidth = isNeighbor ? 1.8 : 0.5;
+            }
+
+            if (isNeighbor || isPathEdge) {
                 ctx.save();
                 ctx.shadowColor = color;
-                ctx.shadowBlur = 8;
+                ctx.shadowBlur = isPathEdge ? 10 : 8;
             }
 
             ctx.beginPath();
@@ -302,7 +346,7 @@ class GraphRenderer {
                 this._drawArrow(ctx, src, tgt, this._nodeRadius(tgt), color, alpha);
             }
 
-            if (isNeighbor) {
+            if (isNeighbor || isPathEdge) {
                 ctx.restore();
             }
         }
@@ -334,20 +378,39 @@ class GraphRenderer {
 
     _drawNodeGlows(ctx, highlightNeighbors) {
         const hasHighlight = this.highlightedNodeId !== null;
+        const hasPathHighlight = this.highlightedPathUpstream.size > 0 || this.highlightedPathDownstream.size > 0;
 
         for (const n of this.visibleNodes) {
             if (n.x == null) continue;
             const r = this._nodeRadius(n);
-            const color = this.nodeColors[n.type] || "#78909c";
+            const baseColor = this.nodeColors[n.type] || "#78909c";
             const isHighlighted = highlightNeighbors.has(n.id);
             const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
             const isSearchMatch = this.searchMatches.size > 0 && this.searchMatches.has(n.id);
+            const isUpstream = this.highlightedPathUpstream.has(n.id);
+            const isDownstream = this.highlightedPathDownstream.has(n.id);
+            const isCenter = n.id === this.highlightedNodeId;
+
+            // Choose glow color based on path membership
+            let color = baseColor;
+            if (hasPathHighlight && (isUpstream || isDownstream || isCenter)) {
+                if (isCenter) {
+                    color = "#ffffff";
+                } else if (isUpstream) {
+                    color = "#ff9800";  // amber for callers
+                } else if (isDownstream) {
+                    color = "#00bcd4";  // cyan for callees
+                }
+            }
 
             let alpha = hasHighlight ? (isHighlighted ? 0.35 : 0.02) : 0.2;
+            if (hasPathHighlight) {
+                alpha = (isUpstream || isDownstream || isCenter) ? 0.4 : 0.02;
+            }
             if (this.searchMatches.size > 0 && !isSearchMatch && !hasHighlight) alpha = 0.03;
             if (isHovered) alpha = 0.5;
 
-            const glowRadius = isHighlighted || isHovered ? r * 4 : r * 2.5;
+            const glowRadius = (isHighlighted || isHovered || isUpstream || isDownstream || isCenter) ? r * 4 : r * 2.5;
             const grad = ctx.createRadialGradient(n.x, n.y, r * 0.5, n.x, n.y, glowRadius);
             grad.addColorStop(0, color);
             grad.addColorStop(1, "transparent");
@@ -363,6 +426,7 @@ class GraphRenderer {
 
     _drawNodes(ctx, highlightNeighbors) {
         const hasHighlight = this.highlightedNodeId !== null;
+        const hasPathHighlight = this.highlightedPathUpstream.size > 0 || this.highlightedPathDownstream.size > 0;
 
         for (const n of this.visibleNodes) {
             if (n.x == null) continue;
@@ -371,15 +435,23 @@ class GraphRenderer {
             const isHighlighted = highlightNeighbors.has(n.id);
             const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
             const isSearchMatch = this.searchMatches.size > 0 && this.searchMatches.has(n.id);
+            const isUpstream = this.highlightedPathUpstream.has(n.id);
+            const isDownstream = this.highlightedPathDownstream.has(n.id);
+            const isCenter = n.id === this.highlightedNodeId;
 
             let alpha = 1;
             if (hasHighlight && !isHighlighted) alpha = 0.1;
+            if (hasPathHighlight && !(isUpstream || isDownstream || isCenter)) alpha = 0.08;
             if (this.searchMatches.size > 0 && !isSearchMatch && !hasHighlight) alpha = 0.12;
 
             ctx.save();
-            if (isHighlighted || isHovered || isSearchMatch) {
-                ctx.shadowColor = color;
-                ctx.shadowBlur = isHovered ? 20 : 12;
+            if (isHighlighted || isHovered || isSearchMatch || isUpstream || isDownstream || isCenter) {
+                const glowColor = (isCenter) ? "#ffffff"
+                    : (isUpstream) ? "#ff9800"
+                    : (isDownstream) ? "#00bcd4"
+                    : color;
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = isHovered ? 20 : (isUpstream || isDownstream || isCenter) ? 14 : 12;
             }
 
             ctx.beginPath();
@@ -398,7 +470,18 @@ class GraphRenderer {
 
             ctx.restore();
 
-            if (isHighlighted || isSearchMatch) {
+            // Draw path ring for upstream/downstream/center nodes
+            if (isUpstream || isDownstream || isCenter) {
+                const ringColor = isCenter ? "#ffffff"
+                    : isUpstream ? "#ff9800"
+                    : "#00bcd4";
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r + 2, 0, Math.PI * 2);
+                ctx.strokeStyle = ringColor;
+                ctx.lineWidth = isCenter ? 2 : 1.5;
+                ctx.globalAlpha = 0.85;
+                ctx.stroke();
+            } else if (isHighlighted || isSearchMatch) {
                 ctx.beginPath();
                 ctx.arc(n.x, n.y, r + 2, 0, Math.PI * 2);
                 ctx.strokeStyle = isSearchMatch ? "#ffffff" : bright;
@@ -586,6 +669,8 @@ class GraphRenderer {
 
     zoomToNode(nodeId) {
         this.highlightedNodeId = nodeId;
+        this.highlightedPathUpstream = new Set();
+        this.highlightedPathDownstream = new Set();
         this._draw();
         const node = this.nodeMap[nodeId];
         if (node && node.x != null) {
@@ -600,8 +685,23 @@ class GraphRenderer {
         }
     }
 
+    setHighlightedPath(nodeId, upstreamIds, downstreamIds) {
+        this.highlightedNodeId = nodeId;
+        this.highlightedPathUpstream = new Set(upstreamIds || []);
+        this.highlightedPathDownstream = new Set(downstreamIds || []);
+        this._draw();
+    }
+
+    clearHighlightedPath() {
+        this.highlightedPathUpstream = new Set();
+        this.highlightedPathDownstream = new Set();
+        this._draw();
+    }
+
     clearHighlight() {
         this.highlightedNodeId = null;
+        this.highlightedPathUpstream = new Set();
+        this.highlightedPathDownstream = new Set();
         this._draw();
     }
 

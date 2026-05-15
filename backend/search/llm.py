@@ -1,4 +1,5 @@
 """
+from log import get_logger; logger = get_logger(__name__)
 LLM integration — DeepSeek API for code explanation, impact analysis,
 and convention summarization.
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 
@@ -23,6 +25,18 @@ class LLMClient:
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        # Try loading from project .env if key not in env
+        if not self.api_key:
+            _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+            if _env_path.exists():
+                with open(_env_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, _, v = line.partition("=")
+                            if k.strip() == "DEEPSEEK_API_KEY":
+                                self.api_key = v.strip().strip('"').strip("'")
+                                break
         self.model = model
         self._base_url = DEEPSEEK_BASE_URL
 
@@ -74,7 +88,7 @@ class LLMClient:
                 data = json.loads(resp.read().decode())
                 return data["choices"][0]["message"]["content"]
         except Exception as e:
-            print(f"  ⚠ DeepSeek API error: {e}")
+            logger.error(f"  ⚠ DeepSeek API error: {e}")
             return ""
 
     def explain_code(

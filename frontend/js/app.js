@@ -15,23 +15,129 @@
     const loadingOverlay = document.getElementById("loading-overlay");
     const detailPanelEl = document.getElementById("detail-panel");
 
+    // View panels
+    const viewForce = document.getElementById("view-force");
+    const viewTree = document.getElementById("view-tree");
+    const viewMatrix = document.getElementById("view-matrix");
+    const viewSunburst = document.getElementById("view-sunburst");
+    const viewCodecity = document.getElementById("view-codecity");
+    const viewMetro = document.getElementById("view-metro");
+    const viewCodepanel = document.getElementById("view-codepanel");
+
+    const viewPanels = {
+        force: viewForce,
+        tree: viewTree,
+        matrix: viewMatrix,
+        sunburst: viewSunburst,
+        codecity: viewCodecity,
+        metro: viewMetro,
+        codepanel: viewCodepanel,
+    };
+
     const renderer = new GraphRenderer(canvas, tooltip);
     const sidebar = new SidebarController(renderer);
     const detailPanel = new DetailPanel(detailPanelEl, {
         onNavigate: (nodeId) => {
             renderer.zoomToNode(nodeId);
         },
+        onHighlightPath: (nodeId, upstreamIds, downstreamIds) => {
+            if (nodeId === null) {
+                renderer.clearHighlightedPath();
+            } else {
+                renderer.setHighlightedPath(nodeId, upstreamIds, downstreamIds);
+            }
+        },
     });
 
+    // Alternate views (lazy init)
+    const views = {
+        tree: null,
+        matrix: null,
+        sunburst: null,
+        codecity: null,
+        metro: null,
+    };
+    let codePanel = null;  // Monaco Editor, loaded on demand
+
+    let currentView = "force";
     let currentGraphData = null;
 
     renderer.onNodeClick((node) => {
         if (renderer.highlightedNodeId === null) {
             detailPanel.close();
+            renderer.clearHighlightedPath();
         } else {
             detailPanel.show(node.id);
         }
     });
+
+    sidebar.onViewChange((viewName) => {
+        switchView(viewName);
+    });
+
+    function switchView(viewName) {
+        if (viewName === currentView) return;
+
+        // Hide all panels
+        for (const [name, panel] of Object.entries(viewPanels)) {
+            panel.style.display = "none";
+        }
+
+        // Show selected panel
+        const panel = viewPanels[viewName];
+        if (panel) {
+            panel.style.display = "";
+        }
+
+        currentView = viewName;
+
+        // Code panel: lazy-load Monaco
+        if (viewName === "codepanel") {
+            if (!codePanel) {
+                codePanel = new CodePanel("view-codepanel");
+            }
+            codePanel.init();
+            return;
+        }
+
+        // Initialize graph views if data loaded
+        if (viewName !== "force" && currentGraphData) {
+            initAlternateView(viewName);
+        }
+
+        // Trigger resize for SVG/3D views
+        if (viewName !== "force" && views[viewName]) {
+            setTimeout(() => views[viewName].resize(), 50);
+        }
+    }
+
+    function initAlternateView(viewName) {
+        if (views[viewName]) {
+            views[viewName].setData(currentGraphData);
+            return;
+        }
+
+        const panel = viewPanels[viewName];
+        if (!panel) return;
+
+        let view;
+        if (viewName === "tree") {
+            view = new TreeView(panel);
+        } else if (viewName === "matrix") {
+            view = new MatrixView(panel);
+        } else if (viewName === "sunburst") {
+            view = new SunburstView(panel);
+        } else if (viewName === "codecity") {
+            view = new CodeCityView(panel.id || "view-codecity");
+        } else if (viewName === "metro") {
+            view = new MetroMapView(panel.id || "view-metro");
+        }
+
+        if (view) {
+            views[viewName] = view;
+            view.setData(currentGraphData);
+        }
+    }
 
     analyzeBtn.addEventListener("click", () => startAnalysis());
     repoInput.addEventListener("keydown", (e) => {
@@ -91,6 +197,11 @@
         sidebar.populate(data);
         detailPanel.setGraphData(data);
         saveBtn.disabled = false;
+
+        // Update alternate views if they're visible
+        if (currentView !== "force" && views[currentView]) {
+            views[currentView].setData(data);
+        }
     }
 
     function saveGraph() {
@@ -146,6 +257,19 @@
         statusMsg.textContent = msg;
         statusMsg.className = "status-msg" + (isError ? " error" : "");
     }
+
+    // Handle window resize for active view
+    window.addEventListener("resize", () => {
+        if (currentView !== "force" && views[currentView]) {
+            views[currentView].resize();
+        }
+    });
+
+    // Expose to detail-panel for "Open in Editor" button
+    window.codeKG = {
+        switchView,
+        get codePanel() { return codePanel; },
+    };
 
     initMobileToggle();
 

@@ -1,4 +1,5 @@
 """
+from log import get_logger; logger = get_logger(__name__)
 KuzuDB-backed knowledge graph store.
 
 Extends the existing in-memory Graph with persistence, Cypher queries,
@@ -8,6 +9,19 @@ Architecture:
   - Graph (in-memory, fast) for analysis phase
   - KuzuDB (persistent, queryable) for storage and retrieval
   - Nodes carry embedding_vector for vector similarity search
+
+Edge Types (named REL TABLEs):
+  - Contains       → general containment / "uses" relationships (was generic "Edge")
+  - Invokes        → function/method calls, API calls
+  - Inherits       → class inheritance
+  - Imports        → module imports
+  - References     → general references between symbols
+  - Decorates      → Python decorator relationships
+  - Handles        → endpoint / route handler relationships
+  - DependsOn      → general dependency (data flow, etc.)
+  - Reads          → database read operations
+  - Writes         → database write operations
+  - CallsTransitively → transitive call relationships (future use)
 """
 
 from __future__ import annotations
@@ -16,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import os
 import kuzu
 
 
@@ -39,12 +54,100 @@ class KGEdge:
     """Edge in the persistent knowledge graph."""
     source: str
     target: str
-    type: str  # calls, imports, inherits, contains, etc.
+    type: str
     line_number: int = 0
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
 
-# Graph schema for KuzuDB
+def get_default_db_path() -> Path:
+    """Resolve the default KuzuDB database path.
+
+    Checks CODE_KG_DATA env var first, then falls back to
+    ~/.code-kg/graph (resolved via os.path.expanduser which handles
+    Hermes sandbox HOME redirection correctly by checking the
+    underlying passwd entry).
+    """
+    import pwd as _pwd
+    if env_path := os.environ.get("CODE_KG_DATA"):
+        return Path(env_path)
+    try:
+        real_home = _pwd.getpwuid(os.getuid()).pw_dir
+    except Exception:
+        real_home = os.path.expanduser("~")
+    return Path(real_home) / ".code-kg" / "graph"
+
+
+# ─── Edge Type Mapping ────────────────────────────────────────────
+#
+# Maps analyzer edge types (python_analyzer, tree-sitter, etc.) to
+# KuzuDB REL TABLE names. Unknown types fall back to "Contains".
+# -------------------------------------------------------------------
+EDGE_TYPE_TO_REL_TABLE: dict[str, str] = {
+    # From python_analyzer.py
+    "uses":             "Contains",
+    "inherits":         "Inherits",
+    "implements":       "Implements",
+    "extends":          "Extends",
+    "endpoint_handler": "Handles",
+    "imports":          "Imports",
+    "db_read":          "Reads",
+    "db_write":         "Writes",
+    "api_call":         "Invokes",
+    # From tree-sitter / other analyzers
+    "calls":            "Invokes",
+    "contains":         "Contains",
+    "references":       "References",
+    "decorates":        "Decorates",
+    "data_flows_to":    "DataFlowsTo",
+    "handles":          "Handles",
+    "typed_as":         "TypedAs",
+    "throws":           "Throws",
+    "calls_transitively": "CallsTransitively",
+    "reads":            "Reads",
+    "writes":           "Writes",
+    "depends_on":       "DependsOn",
+}
+
+
+# All Node-to-Node relationship tables (used for multi-edge queries)
+NODE_EDGE_TABLES: list[str] = [
+    "Contains",
+    "Invokes",
+    "Inherits",
+    "Implements",
+    "Extends",
+    "Imports",
+    "References",
+    "Decorates",
+    "Handles",
+    "DependsOn",
+    "DataFlowsTo",
+    "Reads",
+    "Writes",
+    "CallsTransitively",
+    "TypedAs",
+    "Throws",
+]
+
+# Default fallback REL TABLE for unknown edge types
+DEFAULT_EDGE_TABLE = "Contains"
+
+
+# ─── Graph Schema ─────────────────────────────────────────────────
+#
+# Node tables:
+#   Node     – code entities (functions, classes, variables, etc.)
+#   File     – source files
+#   DocNode  – documentation / markdown content
+#
+# Relationship tables (Node → Node):
+#   Contains, Invokes, Inherits, Imports, References, Decorates,
+#   Handles, DependsOn, Reads, Writes, CallsTransitively,
+#   TypedAs, Throws
+#
+# Relationship tables (File → Node):
+#   FileContains – which nodes belong to which files
+# -------------------------------------------------------------------
 SCHEMA_SQL = """
 CREATE NODE TABLE IF NOT EXISTS Node (
     id STRING PRIMARY KEY,
@@ -66,15 +169,106 @@ CREATE NODE TABLE IF NOT EXISTS File (
     last_modified STRING
 );
 
-CREATE REL TABLE IF NOT EXISTS Edge (
+-- File → Node containment (which file a node lives in)
+CREATE REL TABLE IF NOT EXISTS FileContains (
+    FROM File TO Node
+);
+
+-- Node → Node relationship tables (was generic "Edge" table)
+CREATE REL TABLE IF NOT EXISTS Contains (
     FROM Node TO Node,
-    type STRING,
     line_number INT64,
     metadata STRING
 );
 
-CREATE REL TABLE IF NOT EXISTS Contains (
-    FROM File TO Node
+CREATE REL TABLE IF NOT EXISTS Invokes (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Inherits (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Imports (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS References (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Decorates (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Handles (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS DependsOn (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Reads (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Writes (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS CallsTransitively (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS TypedAs (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Throws (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Implements (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS Extends (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
+);
+
+CREATE REL TABLE IF NOT EXISTS DataFlowsTo (
+    FROM Node TO Node,
+    line_number INT64,
+    metadata STRING
 );
 
 CREATE NODE TABLE IF NOT EXISTS DocNode (
@@ -109,37 +303,200 @@ class KnowledgeGraph:
         self._db = kuzu.Database(str(self.db_path))
         self._conn = kuzu.Connection(self._db)
         self._init_schema()
+        self._hnsw_index: Any = None
+        self._hnsw_ids: list[str] = []
+        self._init_hnsw()
 
     def _init_schema(self) -> None:
         """Initialize the graph schema if not exists."""
         for stmt in SCHEMA_SQL.strip().split(";\n"):
             stmt = stmt.strip()
+            lines = stmt.split("\n")
+            while lines and (not lines[0].strip() or lines[0].strip().startswith("--")):
+                lines.pop(0)
+            stmt = "\n".join(lines).strip()
             if stmt:
                 try:
-                    self._conn.execute(stmt + ";")
-                except Exception:
-                    pass  # Already exists
+                    self._conn.execute(stmt)
+                except Exception as e:
+                    err_msg = str(e)
+                    if "already exists" not in err_msg.lower():
+                        import sys
+                        print(f"  ⚠ Schema init warning [{stmt[:40]}...]: {e}", file=sys.stderr)
 
-        # Create DocNode table separately (KuzuDB IF NOT EXISTS may be flaky)
+    # ─── HNSW Vector Index ────────────────────────────────────────
+    #
+    # KuzuDB 0.11.x does not support native HNSW index creation
+    # (requires ≥0.12).  We maintain a sidecar HNSW index via hnswlib
+    # for fast approximate nearest-neighbor search.
+    #
+    # The index lives at {db_path}/hnsw_index.bin with a separate
+    # id-mapping file at {db_path}/hnsw_ids.npy.
+    # -----------------------------------------------------------------
+
+    @property
+    def _hnsw_index_path(self) -> Path:
+        return self.db_path / "hnsw_index.bin"
+
+    @property
+    def _hnsw_ids_path(self) -> Path:
+        return self.db_path / "hnsw_ids.npy"
+
+    def _init_hnsw(self) -> None:
+        """Load or build the HNSW vector index."""
         try:
-            self._conn.execute(
-                "CREATE NODE TABLE DocNode ("
-                "id STRING PRIMARY KEY, "
-                "source_file STRING, "
-                "source_type STRING, "
-                "title STRING, "
-                "content STRING, "
-                "language STRING, "
-                "embedding_vector DOUBLE[]"
-                ")"
+            import numpy as np
+        except ImportError:
+            return
+
+        if self._hnsw_ids_path.exists() and self._hnsw_index_path.exists():
+            self._load_hnsw_index()
+            return
+
+        # Build from existing vectors in DB
+        rows = self.query(
+            "MATCH (n:Node) WHERE size(n.embedding_vector) > 0 "
+            "RETURN n.id, n.embedding_vector LIMIT 50000"
+        )
+        if not rows:
+            return
+
+        vectors = []
+        ids = []
+        dim = len(rows[0].get("n.embedding_vector", []))
+        for r in rows:
+            vec = r.get("n.embedding_vector")
+            nid = r.get("n.id", "")
+            if vec and nid:
+                vectors.append(vec)
+                ids.append(nid)
+
+        if not vectors:
+            return
+
+        try:
+            import hnswlib
+            import numpy as np
+            dim = len(vectors[0])
+            index = hnswlib.Index(space="cosine", dim=dim)
+            index.init_index(
+                max_elements=max(len(vectors) * 2, 1000),
+                ef_construction=200,
+                M=32,
             )
-        except Exception:
-            pass  # Table already exists
+            index.add_items(np.array(vectors, dtype=np.float32), np.arange(len(vectors)))
+            index.set_ef(100)
+            self._hnsw_index = index
+            self._hnsw_ids = ids
+            self._save_hnsw_index()
+        except Exception as e:
+            from log import get_logger
+            get_logger(__name__).warning(f"HNSW index build error: {e}")
+
+    def _save_hnsw_index(self) -> None:
+        """Persist the HNSW index and id mapping to disk."""
+        if self._hnsw_index is None:
+            return
+        try:
+            import numpy as np
+            self._hnsw_index.save_index(str(self._hnsw_index_path))
+            np.save(str(self._hnsw_ids_path), np.array(self._hnsw_ids, dtype=object))
+        except Exception as e:
+            from log import get_logger
+            get_logger(__name__).warning(f"HNSW save error: {e}")
+
+    def _load_hnsw_index(self) -> None:
+        """Load the HNSW index and id mapping from disk."""
+        try:
+            import hnswlib
+            import numpy as np
+            dim = self._vec_dim()
+            index = hnswlib.Index(space="cosine", dim=dim)
+            index.load_index(str(self._hnsw_index_path))
+            index.set_ef(100)
+            self._hnsw_index = index
+            self._hnsw_ids = list(np.load(str(self._hnsw_ids_path), allow_pickle=True))
+        except Exception as e:
+            from log import get_logger
+            get_logger(__name__).warning(f"HNSW load error: {e}")
+
+    def _update_hnsw_index(self, node_id: str, vector: list[float]) -> None:
+        """Add or update a single node in the HNSW index."""
+        if not vector or not any(vector):
+            return
+        try:
+            import hnswlib
+            import numpy as np
+            # Check if this node already has an entry
+            if node_id in self._hnsw_ids:
+                return  # Already indexed; rebuild would be expensive for single item
+            idx = len(self._hnsw_ids)
+            self._hnsw_ids.append(node_id)
+            if self._hnsw_index is None:
+                dim = len(vector)
+                index = hnswlib.Index(space="cosine", dim=dim)
+                index.init_index(max_elements=10000, ef_construction=200, M=32)
+                index.set_ef(100)
+                index.add_items(np.array([vector], dtype=np.float32), np.array([idx]))
+                self._hnsw_index = index
+            else:
+                max_elements = self._hnsw_index.max_elements
+                if idx >= max_elements:
+                    self._hnsw_index.resize_index(max_elements * 2)
+                self._hnsw_index.add_items(
+                    np.array([vector], dtype=np.float32), np.array([idx])
+                )
+        except Exception as e:
+            from log import get_logger
+            get_logger(__name__).warning(f"HNSW update error: {e}")
 
     def clear(self) -> None:
         """Clear all data from the graph."""
         self._conn.execute("MATCH (n:Node) DETACH DELETE n;")
         self._conn.execute("MATCH (f:File) DETACH DELETE f;")
+
+    # ─── Edge Type Resolution ─────────────────────────────────────
+
+    @staticmethod
+    def _resolve_rel_table(edge_type: str) -> str:
+        """Resolve an analyzer edge type to a KuzuDB REL TABLE name.
+
+        Falls back to DEFAULT_EDGE_TABLE for unknown types.
+        """
+        return EDGE_TYPE_TO_REL_TABLE.get(edge_type, DEFAULT_EDGE_TABLE)
+
+    @staticmethod
+    def _build_multi_edge_match(
+        direction: str = "both",
+        node_var: str = "n",
+        neighbor_var: str = "m",
+        node_id_param: str = "$id",
+    ) -> str:
+        """Build a UNION ALL query pattern matching across all edge types.
+
+        Args:
+            direction: "forward" (→), "backward" (←), or "both" (—).
+            node_var: Variable name for the source/center node.
+            neighbor_var: Variable name for the neighbor node.
+            node_id_param: Parameter reference for the center node's id
+                           (default "$id").
+
+        Returns:
+            A UNION ALL of MATCH clauses covering all NODE_EDGE_TABLES,
+            each filtering on {node_var}.id = {node_id_param}.
+        """
+        patterns: dict[str, str] = {
+            "forward":  f"({node_var}:Node {{{{id: {node_id_param}}}}})-[:{{table}}]->({neighbor_var}:Node)",
+            "backward": f"({node_var}:Node {{{{id: {node_id_param}}}}})<-[:{{table}}]-({neighbor_var}:Node)",
+            "both":     f"({node_var}:Node {{{{id: {node_id_param}}}}})-[:{{table}}]-({neighbor_var}:Node)",
+        }
+        template = patterns.get(direction, patterns["both"])
+
+        clauses = [
+            f"MATCH {template.format(table=t)}"
+            for t in NODE_EDGE_TABLES
+        ]
+        return " UNION ALL ".join(clauses)
 
     # ─── Batch Import ──────────────────────────────────────────────
 
@@ -148,38 +505,51 @@ class KnowledgeGraph:
         repo_path: str,
         nodes: list[dict],
         edges: list[dict],
+        replace: bool = False,
     ) -> dict:
         """Ingest an analysis result into the knowledge graph.
 
-        Uses prepared statements for fast batch import.
+        Args:
+            replace: If True, clear ALL data before ingestion.
+                     If False (default), add nodes alongside existing ones
+                     (duplicate node IDs will be skipped).
         """
-        self.clear()
+        if replace:
+            self.clear()
 
-        # Batch insert nodes using prepared statement
         node_count = 0
         try:
-            # Build a single COPY-like statement or batch with BEGIN/COMMIT
             self._conn.execute("BEGIN TRANSACTION;")
-            
             for n in nodes:
+                meta = n.get("metadata", {}) or {}
+                embedding = n.get("embedding_vector") or meta.get("embedding_vector")
+                node_data = {
+                    "id": str(n.get("id", "")),
+                    "label": str(n.get("label", "")),
+                    "type": str(n.get("type", "unknown")),
+                    "file_path": str(n.get("file_path", "")),
+                    "line_number": int(n.get("line_number", 0)),
+                    "signature": str(n.get("signature", "") or meta.get("signature", "")),
+                    "docstring": str(n.get("docstring", "") or meta.get("docstring", "")),
+                    "git_blame": str(n.get("git_blame", "")),
+                    "embedding_vector": embedding if embedding else [],
+                }
                 self._conn.execute(
-                    "CREATE (n:Node {"
-                    "id: $id, label: $label, type: $type, "
-                    "file_path: $file_path, line_number: $line_number, "
-                    "signature: $signature, docstring: $docstring, "
-                    "git_blame: $git_blame"
-                    "})",
-                    {
-                        "id": str(n.get("id", "")),
-                        "label": str(n.get("label", "")),
-                        "type": str(n.get("type", "unknown")),
-                        "file_path": str(n.get("file_path", "")),
-                        "line_number": int(n.get("line_number", 0)),
-                        "signature": str(n.get("signature", "")),
-                        "docstring": str(n.get("docstring", "")),
-                        "git_blame": str(n.get("git_blame", "")),
-                    },
+                    "MERGE (n:Node {id: $id}) "
+                    "ON CREATE SET n.label = $label, n.type = $type, "
+                    "n.file_path = $file_path, n.line_number = $line_number, "
+                    "n.signature = $signature, n.docstring = $docstring, "
+                    "n.git_blame = $git_blame, "
+                    "n.embedding_vector = $embedding_vector "
+                    "ON MATCH SET n.label = $label, n.type = $type, "
+                    "n.file_path = $file_path, n.line_number = $line_number, "
+                    "n.signature = $signature, n.docstring = $docstring, "
+                    "n.git_blame = $git_blame, "
+                    "n.embedding_vector = $embedding_vector",
+                    node_data,
                 )
+                if embedding:
+                    self._update_hnsw_index(node_data["id"], embedding)
                 node_count += 1
             self._conn.execute("COMMIT;")
         except Exception as e:
@@ -187,10 +557,10 @@ class KnowledgeGraph:
                 self._conn.execute("ROLLBACK;")
             except Exception:
                 pass
-            print(f"  ⚠ Node ingestion error: {e}")
+            logger.error(f"Node ingestion error: {e}")
             return {"nodes": 0, "edges": 0, "files": 0, "error": str(e)}
 
-        # Batch insert edges
+        # Batch insert edges using named REL TABLEs
         edge_count = 0
         try:
             self._conn.execute("BEGIN TRANSACTION;")
@@ -199,15 +569,25 @@ class KnowledgeGraph:
                 target_id = str(e.get("target", ""))
                 if not source_id or not target_id:
                     continue
+
+                edge_type = str(e.get("type", ""))
+                rel_table = self._resolve_rel_table(edge_type)
+
+                # Extract line_number from metadata or top-level
+                meta = e.get("metadata", {})
+                if isinstance(meta, dict):
+                    line_no = int(meta.get("line_number", 0))
+                else:
+                    line_no = int(e.get("line_number", 0))
+
                 try:
                     self._conn.execute(
-                        "MATCH (a:Node {id: $source}), (b:Node {id: $target}) "
-                        "CREATE (a)-[:Edge {type: $type, line_number: $line_number}]->(b)",
+                        f"MATCH (a:Node {{id: $source}}), (b:Node {{id: $target}}) "
+                        f"CREATE (a)-[:{rel_table} {{line_number: $line_number}}]->(b)",
                         {
                             "source": source_id,
                             "target": target_id,
-                            "type": str(e.get("type", "")),
-                            "line_number": int(e.get("line_number", 0)),
+                            "line_number": line_no,
                         },
                     )
                     edge_count += 1
@@ -219,7 +599,7 @@ class KnowledgeGraph:
                 self._conn.execute("ROLLBACK;")
             except Exception:
                 pass
-            print(f"  ⚠ Edge ingestion error: {e}")
+            logger.error(f"  ⚠ Edge ingestion error: {e}")
 
         return {"nodes": node_count, "edges": edge_count, "files": 0}
 
@@ -246,7 +626,7 @@ class KnowledgeGraph:
     def traverse_neighbors(
         self, node_id: str, hops: int = 2, direction: str = "both"
     ) -> list[dict]:
-        """Traverse N-hop neighbors of a node.
+        """Traverse N-hop neighbors of a node across all edge types.
 
         Args:
             node_id: Starting node ID.
@@ -256,47 +636,83 @@ class KnowledgeGraph:
         Returns:
             List of connected nodes with relationship info.
         """
-        if direction == "forward":
-            rel_pattern = "-[:Edge]->"
-        elif direction == "backward":
-            rel_pattern = "<-[:Edge]-"
-        else:
-            rel_pattern = "-[:Edge]-"
-
-        query = (
-            f"MATCH (n:Node {{id: $id}}){rel_pattern}"
-            f"(m:Node) "
-            f"RETURN DISTINCT m.id, m.label, m.type, m.file_path, "
-            f"m.signature, m.docstring "
-            f"LIMIT 100"
-        )
-        return self.query(query, {"id": node_id})
+        return self._query_multi_edge(direction=direction, node_id=node_id, limit=100)
 
     def search_by_pattern(self, node_type: str, name_pattern: str) -> list[dict]:
         """Search nodes by type and name pattern (BM25-like, exact).
 
         Args:
-            node_type: Node type to filter by.
-            name_pattern: SQL LIKE pattern for label.
+            node_type: Node type filter. '' means any type.
+            name_pattern: Search pattern for label (CONTAINS).
 
         Returns:
             List of matching nodes.
         """
+        if node_type:
+            query = (
+                "MATCH (n:Node) "
+                "WHERE n.type = $type AND n.label CONTAINS $pattern "
+                "RETURN n.id, n.label, n.type, n.file_path, n.line_number, "
+                "n.signature, n.docstring "
+                "LIMIT 50"
+            )
+            return self.query(query, {"type": node_type, "pattern": name_pattern})
         query = (
             "MATCH (n:Node) "
-            "WHERE n.type = $type AND n.label CONTAINS $pattern "
+            "WHERE n.label CONTAINS $pattern "
             "RETURN n.id, n.label, n.type, n.file_path, n.line_number, "
             "n.signature, n.docstring "
             "LIMIT 50"
         )
-        return self.query(query, {"type": node_type, "pattern": name_pattern})
+        return self.query(query, {"pattern": name_pattern})
+
+    def search_by_regex(self, pattern: str, node_type: str = "") -> list[dict]:
+        """Search nodes by regular expression pattern on label.
+
+        Provides ast-grep-like structural pattern matching using
+        KuzuDB's native regex support.
+
+        Args:
+            pattern: Regex pattern for label matching (e.g., '^get[A-Z]').
+            node_type: Optional node type filter ('function', 'class', etc.)
+
+        Returns:
+            List of matching nodes.
+        """
+        if node_type:
+            query = (
+                "MATCH (n:Node) "
+                "WHERE n.type = $type AND n.label =~ $pattern "
+                "RETURN n.id, n.label, n.type, n.file_path, n.line_number, "
+                "n.signature, n.docstring "
+                "LIMIT 50"
+            )
+            return self.query(query, {"type": node_type, "pattern": pattern})
+        query = (
+            "MATCH (n:Node) "
+            "WHERE n.label =~ $pattern "
+            "RETURN n.id, n.label, n.type, n.file_path, n.line_number, "
+            "n.signature, n.docstring "
+            "LIMIT 50"
+        )
+        return self.query(query, {"pattern": pattern})
+
+    def _vec_dim(self) -> int:
+        """Detect the embedding dimension from the first node that has one."""
+        rows = self.query("MATCH (n:Node) WHERE size(n.embedding_vector) > 0 RETURN size(n.embedding_vector) AS d LIMIT 1")
+        if rows:
+            return rows[0]["d"]
+        return 384  # default
 
     def vector_search(
         self, query_vector: list[float], top_k: int = 20
     ) -> list[dict]:
         """Search nodes by embedding vector similarity (cosine).
 
-        Requires nodes to have embedding_vector populated.
+        Uses the on-disk HNSW index (hnswlib) when available for
+        approximate nearest-neighbor search (~1ms at 10K nodes).
+        Falls back to brute-force array_cosine_similarity via KuzuDB
+        when the HNSW index is empty or needs rebuilding.
 
         Args:
             query_vector: Query embedding vector.
@@ -305,10 +721,52 @@ class KnowledgeGraph:
         Returns:
             List of matching nodes sorted by similarity.
         """
+        # ─── Fast path: HNSW index ───
+        if self._hnsw_index is not None and self._hnsw_ids:
+            try:
+                import numpy as np
+                labels, distances = self._hnsw_index.knn_query(
+                    np.array([query_vector], dtype=np.float32), k=min(top_k * 2, len(self._hnsw_ids))
+                )
+                results = []
+                for label, dist in zip(labels[0], distances[0]):
+                    if label == -1:
+                        continue
+                    idx = int(label)
+                    if idx >= len(self._hnsw_ids):
+                        continue
+                    node_id = self._hnsw_ids[idx]
+                    cosine_sim = 1.0 - dist  # hnswlib returns cosine distance → similarity
+                    if cosine_sim < 0.3:
+                        continue
+                    rows = self.query(
+                        "MATCH (n:Node {id: $id}) "
+                        "RETURN n.id, n.label, n.type, n.file_path, "
+                        "n.signature, n.docstring",
+                        {"id": node_id},
+                    )
+                    if rows:
+                        row = rows[0]
+                        row["score"] = round(cosine_sim, 4)
+                        results.append(row)
+                        if len(results) >= top_k:
+                            break
+                results.sort(key=lambda r: r["score"], reverse=True)
+                return results
+            except Exception as e:
+                from log import get_logger
+                get_logger(__name__).warning(f"HNSW query error, falling back: {e}")
+
+        # ─── Fallback: KuzuDB brute-force ───
+        dim = self._vec_dim()
+        cast_target = f"DOUBLE[{dim}]"
         query = (
             "MATCH (n:Node) "
             "WHERE size(n.embedding_vector) > 0 "
-            "WITH n, array_cosine_similarity(n.embedding_vector, $query_vec) AS score "
+            "WITH n, array_cosine_similarity("
+            f"  CAST(n.embedding_vector, '{cast_target}'),"
+            f"  CAST($query_vec, '{cast_target}')"
+            ") AS score "
             "WHERE score > 0.3 "
             "RETURN n.id, n.label, n.type, n.file_path, "
             "n.signature, n.docstring, score "
@@ -317,39 +775,76 @@ class KnowledgeGraph:
         )
         return self.query(query, {"query_vec": query_vector})
 
+    # ─── Dependency Analysis ──────────────────────────────────────
+
+    def get_neighbors(
+        self, node_id: str, direction: str = "both", limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Get direct neighbors of a node across all edge types.
+
+        Args:
+            node_id: The node to find neighbors for.
+            direction: "forward" (outgoing), "backward" (incoming), or "both".
+            limit: Max results.
+
+        Returns:
+            List of neighbor nodes with id, label, type, file_path, line_number.
+        """
+        return self._query_multi_edge(direction=direction, node_id=node_id, limit=limit)
+
     def get_dependents(self, node_id: str) -> list[dict[str, Any]]:
-        """Get nodes that depend on (call) this node."""
-        deps = self.query(
-            "MATCH (n:Node {id: $id})<-[:Edge]-(dependent:Node) "
-            "RETURN dependent.id AS id, dependent.label AS label, "
-            "dependent.type AS type, dependent.file_path AS file_path, "
-            "dependent.line_number AS line_number "
-            "LIMIT 50",
-            {"id": node_id},
-        )
-        return deps
+        """Get nodes that depend on (reference/call/use) this node.
+
+        Searches across all incoming edge types.
+        """
+        return self._query_multi_edge(direction="backward", node_id=node_id)
+
+    def get_dependencies(self, node_id: str) -> list[dict[str, Any]]:
+        """Get nodes that this node depends on (calls/imports/references).
+
+        Searches across all outgoing edge types.
+        """
+        return self._query_multi_edge(direction="forward", node_id=node_id)
+
+    def _query_multi_edge(self, direction: str, node_id: str,
+                          limit: int = 50) -> list[dict[str, Any]]:
+        """Query across all Node→Node REL TABLEs, merging results in Python."""
+        if direction == "backward":
+            pattern = "(n:Node {{id: $id}})<-[:{table}]-(dependent:Node)"
+        elif direction == "forward":
+            pattern = "(n:Node {{id: $id}})-[:{table}]->(dependent:Node)"
+        else:
+            pattern = "(n:Node {{id: $id}})-[:{table}]-(dependent:Node)"
+
+        seen = set()
+        results = []
+        for table in NODE_EDGE_TABLES:
+            query = (
+                f"MATCH {pattern.format(table=table)} "
+                f"RETURN DISTINCT dependent.id AS id, dependent.label AS label, "
+                f"dependent.type AS type, dependent.file_path AS file_path, "
+                f"dependent.line_number AS line_number "
+                f"LIMIT {limit}"
+            )
+            try:
+                rows = self.query(query, {"id": node_id})
+                for row in rows:
+                    rid = row["id"]
+                    if rid not in seen:
+                        seen.add(rid)
+                        results.append(row)
+            except Exception:
+                pass  # Table may be empty or just created
+
+        return results
 
     def impact_analysis(self, node_id: str) -> dict:
         """Analyze the impact of modifying a node.
 
         Returns direct dependents and N-hop impact.
         """
-        # Direct dependents
-        dependents = self.query(
-            "MATCH (n:Node {id: $id})<-[:Edge]-(dependent:Node) "
-            "RETURN dependent.id, dependent.label, dependent.type, "
-            "dependent.file_path "
-            "LIMIT 50",
-            {"id": node_id},
-        )
-
-        # Direct dependencies
-        dependencies = self.query(
-            "MATCH (n:Node {id: $id})-[:Edge]->(dep:Node) "
-            "RETURN dep.id, dep.label, dep.type, dep.file_path "
-            "LIMIT 50",
-            {"id": node_id},
-        )
+        dependents = self.get_dependents(node_id)
+        dependencies = self.get_dependencies(node_id)
 
         return {
             "node_id": node_id,
@@ -359,13 +854,27 @@ class KnowledgeGraph:
         }
 
     def stats(self) -> dict:
-        """Get graph statistics."""
+        """Get graph statistics including per-edge-type counts."""
         node_count = self.query(
             "MATCH (n:Node) RETURN count(n) AS cnt"
         )
-        edge_count = self.query(
-            "MATCH ()-[e:Edge]->() RETURN count(e) AS cnt"
+
+        # Count edges across all Node→Node REL TABLEs
+        edge_parts = [
+            f"MATCH ()-[:{t}]->() RETURN '{t}' AS rel_type, count(*) AS cnt"
+            for t in NODE_EDGE_TABLES
+        ]
+        edge_query = " UNION ALL ".join(edge_parts)
+
+        # Also count FileContains edges
+        edge_query += (
+            " UNION ALL "
+            "MATCH ()-[:FileContains]->() RETURN 'FileContains' AS rel_type, count(*) AS cnt"
         )
+
+        edge_counts = self.query(edge_query)
+        total_edges = sum(row["cnt"] for row in edge_counts)
+
         type_counts = self.query(
             "MATCH (n:Node) RETURN n.type AS type, count(n) AS cnt "
             "ORDER BY cnt DESC"
@@ -373,10 +882,14 @@ class KnowledgeGraph:
 
         return {
             "nodes": node_count[0]["cnt"] if node_count else 0,
-            "edges": edge_count[0]["cnt"] if edge_count else 0,
+            "edges": total_edges,
+            "edge_type_distribution": edge_counts,
             "type_distribution": type_counts,
         }
 
     def close(self) -> None:
         """Close the database connection."""
-        pass  # KuzuDB auto-closes on object destruction
+        try:
+            self._conn.close()
+        except Exception:
+            pass

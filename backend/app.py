@@ -4,7 +4,18 @@ import os
 from pathlib import Path
 from typing import Any
 
+# Load .env file for local development (DEEPSEEK_API_KEY, etc.)
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    with open(_env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, val = line.partition("=")
+                os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -13,6 +24,13 @@ from analyzer.orchestrator import analyze_repo
 from analyzer.orchestrator_v2 import analyze_repo_universal
 
 app = FastAPI(title="Code Understanding System")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -76,6 +94,32 @@ async def analyze(req: AnalyzeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Auto-generate conventions if LLM is available
+    try:
+        from memory.store import load_conventions, save_conventions
+        from search.llm import get_llm
+        if not load_conventions() and get_llm().available:
+            from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+            db_path = get_default_db_path()
+            if db_path.exists():
+                kg = KnowledgeGraph(str(db_path))
+                samples = kg.query(
+                    "MATCH (n:Node) WHERE n.docstring <> '' "
+                    "RETURN n.label, n.signature, n.docstring, n.file_path "
+                    "LIMIT 20"
+                )
+                kg.close()
+                if samples:
+                    code_samples = [
+                        {"name": s["n.label"], "content": s["n.signature"], "language": "unknown"}
+                        for s in samples
+                    ]
+                    generated = get_llm().extract_conventions(code_samples)
+                    if generated:
+                        save_conventions(generated)
+    except Exception:
+        pass  # Conventions auto-gen is best-effort
+
     return result
 
 
@@ -118,7 +162,8 @@ async def explain(req: ExplainRequest):
         from search.llm import get_llm
         from graph.kuzu_store import KnowledgeGraph
 
-        db_path = Path.home() / ".code-kg" / "graph"
+        from graph.kuzu_store import get_default_db_path
+        db_path = get_default_db_path()
         if not db_path.exists():
             return {"explanation": "No graph database. Analyze a repo first."}
 
@@ -158,7 +203,8 @@ async def conventions(req: ConventionsRequest):
         # Try to auto-generate from analyzed code
         if req.repo_path:
             from graph.kuzu_store import KnowledgeGraph
-            db_path = Path.home() / ".code-kg" / "graph"
+            from graph.kuzu_store import get_default_db_path
+            db_path = get_default_db_path()
             if db_path.exists():
                 kg = KnowledgeGraph(str(db_path))
                 samples = kg.query(
@@ -189,7 +235,8 @@ async def status() -> dict[str, Any]:
     result: dict[str, Any] = {"status": "ok", "kg_stats": None}
     try:
         from graph.kuzu_store import KnowledgeGraph
-        db_path = Path.home() / ".code-kg" / "graph"
+        from graph.kuzu_store import get_default_db_path
+        db_path = get_default_db_path()
         if db_path.exists():
             kg = KnowledgeGraph(str(db_path))
             result["kg_stats"] = kg.stats()
@@ -205,6 +252,60 @@ async def status() -> dict[str, Any]:
         result["llm_available"] = False
 
     return result
+
+
+@app.get("/api/capabilities")
+async def capabilities():
+    """Agent-friendly discovery endpoint: lists all tools and features."""
+    return {
+        "name": "CodeKG",
+        "version": "0.3.0",
+        "description": "Code knowledge graph — analyze, search, and visualize any codebase. For humans and AI agents.",
+        "endpoints": {
+            "rest_api": "http://localhost:8765",
+            "openapi_spec": "http://localhost:8765/openapi.json",
+            "mcp_server": "stdio://mcp-server (run: python -m backend.mcp.server_standalone)",
+            "cli": "python -m backend.cli",
+        },
+        "capabilities": {
+            "analysis": {
+                "methods": ["tree-sitter", "original"],
+                "output": "nodes + edges + node_colors + edge_colors + stats",
+                "note": "tree-sitter method recommended for multi-language support",
+            },
+            "search": {
+                "structural": {"endpoint": "/api/search", "method": "POST", "description": "Regex/fuzzy pattern matching on code symbols"},
+                "semantic": {"status": "planned", "description": "Vector similarity search — requires embedding pipeline (v2)"},
+            },
+            "visualization": ["force_graph", "tree_view", "matrix_view", "sunburst_view", "codecity_3d", "metro_map", "code_panel"],
+            "llm": {
+                "explain": "/api/explain — AI-powered code explanation",
+                "conventions": "/api/conventions — extract coding conventions",
+                "impact_summary": "/api/diff → returns LLM-generated impact summaries",
+            },
+            "code_intelligence": {
+                "lsp": ["definition", "references", "hover"],
+                "scip": "Cross-file reference indexing",
+            },
+            "impact_analysis": ["/api/diff (git diff)", "/api/impact (entity-level)"],
+            "docs": ["/api/docs/index", "/api/docs/search"],
+        },
+        "mcp_tools": [
+            {"name": "search_pattern", "description": "Pattern-based code search (regex/fuzzy)"},
+            {"name": "traverse_graph", "description": "Traverse code dependencies — callers, callees"},
+            {"name": "get_node_details", "description": "Get detailed info about a code symbol"},
+            {"name": "get_impact_analysis", "description": "Impact analysis for a code symbol"},
+            {"name": "get_context", "description": "Get project context, stats, and LLM status"},
+            {"name": "get_conventions", "description": "Get coding conventions"},
+            {"name": "search_docs", "description": "Search documentation"},
+            {"name": "analyze_impact", "description": "Git diff impact analysis"},
+        ],
+        "cli_commands": ["analyze", "search", "neighbors", "explain", "conventions", "diff", "impact", "docs", "status", "mcp-config"],
+        "data_formats": {
+            "graph": "nodes[].{id, label, type, file_path, line_number, signature, docstring} + edges[].{source, target, type, metadata}",
+            "search_result": "{node_id, label, type, file_path, line_number, signature, docstring, score, source}",
+        },
+    }
 
 
 @app.post("/api/diff")
@@ -238,6 +339,10 @@ async def diff_analyze(req: DiffRequest):
             "diff_summary": result.diff_summary,
             "errors": result.raw_errors,
         }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -275,7 +380,8 @@ async def impact_analyze(req: ImpactRequest):
         # Entity mode
         if req.node_id:
             from graph.kuzu_store import KnowledgeGraph
-            db_path = Path.home() / ".code-kg" / "graph"
+            from graph.kuzu_store import get_default_db_path
+            db_path = get_default_db_path()
             if not db_path.exists():
                 raise HTTPException(status_code=404, detail="No graph database. Analyze a repo first.")
             kg = KnowledgeGraph(str(db_path))
@@ -314,6 +420,154 @@ async def docs_search(req: DocSearchRequest):
         indexer = DocIndexer()
         results = indexer.search_docs(req.query, req.max_results)
         return {"query": req.query, "results": results, "total": len(results)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/source")
+async def get_source(file_path: str, repo_root: str = "", line_start: int = 0, line_end: int = 0):
+    """Read source file content, optionally scoped to a line range.
+    
+    If file_path is relative and repo_root is provided, resolve against repo_root.
+    Otherwise resolve against current working directory.
+    """
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path is required")
+
+    p = Path(file_path)
+    if not p.is_absolute():
+        if repo_root:
+            p = Path(repo_root) / file_path
+        p = p.resolve()
+
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path} (resolved: {p})")
+
+    if not p.is_file():
+        raise HTTPException(status_code=400, detail=f"Not a file: {file_path}")
+
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {e}")
+
+    lines = text.split("\n")
+    total_lines = len(lines)
+
+    if line_start > 0 and line_end > 0:
+        start = max(0, line_start - 1)
+        end = min(total_lines, line_end)
+        lines = lines[start:end]
+    elif line_start > 0:
+        start = max(0, line_start - 1)
+        lines = lines[start:]
+
+    return {
+        "file_path": str(p),
+        "total_lines": total_lines,
+        "returned_lines": len(lines),
+        "line_start": line_start if line_start > 0 else 1,
+        "content": "\n".join(lines),
+    }
+
+
+# ─── LSP Endpoints ─────────────────────────────────────────────
+
+class LspDefinitionRequest(BaseModel):
+    file_path: str
+    line: int
+    column: int = 1
+    repo_root: str = ""
+
+
+class LspReferencesRequest(BaseModel):
+    file_path: str
+    line: int
+    column: int = 1
+    repo_root: str = ""
+
+
+class LspHoverRequest(BaseModel):
+    file_path: str
+    line: int
+    column: int = 1
+    repo_root: str = ""
+
+
+@app.post("/api/lsp/definition")
+async def lsp_definition(req: LspDefinitionRequest):
+    """Go to definition via LSP/Jedi."""
+    try:
+        from lsp.client import get_lsp_client
+        root = req.repo_root or str(Path(req.file_path).parent)
+        client = get_lsp_client(root)
+        results = client.definition(req.file_path, req.line, req.column)
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/references")
+async def lsp_references(req: LspReferencesRequest):
+    """Find all references via LSP/Jedi."""
+    try:
+        from lsp.client import get_lsp_client
+        root = req.repo_root or str(Path(req.file_path).parent)
+        client = get_lsp_client(root)
+        results = client.references(req.file_path, req.line, req.column)
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/hover")
+async def lsp_hover(req: LspHoverRequest):
+    """Get hover info via LSP/Jedi."""
+    try:
+        from lsp.client import get_lsp_client
+        root = req.repo_root or str(Path(req.file_path).parent)
+        client = get_lsp_client(root)
+        result = client.hover(req.file_path, req.line, req.column)
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── SCIP Endpoint ─────────────────────────────────────────────
+
+class ScipIndexRequest(BaseModel):
+    repo_path: str
+
+
+@app.post("/api/scip/index")
+async def scip_index(req: ScipIndexRequest):
+    """Run SCIP cross-file reference indexing."""
+    try:
+        from scip.indexer import index_repo
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+
+        result = index_repo(req.repo_path)
+
+        # Ingest SCIP results into KuzuDB
+        try:
+            db_path = get_default_db_path()
+            if db_path.exists():
+                kg = KnowledgeGraph(str(db_path))
+                symbols = result.get("symbols", [])
+                relations = result.get("relations", [])
+                if symbols or relations:
+                    kg.ingest_analysis(req.repo_path, symbols, relations)
+                kg.close()
+                result["persisted"] = True
+        except Exception:
+            result["persisted"] = False
+
+        return {
+            "indexer": result["indexer"],
+            "symbols_found": len(result.get("symbols", [])),
+            "relations_found": len(result.get("relations", [])),
+            "persisted": result.get("persisted", False),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

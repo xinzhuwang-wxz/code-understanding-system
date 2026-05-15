@@ -1,4 +1,5 @@
 """
+from log import get_logger; logger = get_logger(__name__)
 Search engine — three-layer retrieval with adaptive escalation.
 
 Layer 1: Structural (tree-sitter pattern matching + BM25)
@@ -63,8 +64,8 @@ class SearchEngine:
         """Lazy-load KuzuDB connection."""
         if self._kg is None:
             from pathlib import Path
-            from graph.kuzu_store import KnowledgeGraph
-            path = self._kg_path or str(Path.home() / ".code-kg" / "graph")
+            from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+            path = self._kg_path or str(get_default_db_path())
             self._kg = KnowledgeGraph(path)
         return self._kg
 
@@ -165,18 +166,37 @@ class SearchEngine:
     def _search_semantic(
         self, query: str, node_type: str = "", top_k: int = 20
     ) -> list[SearchResult]:
-        """Layer 2: Vector similarity search via KuzuDB HNSW.
-
-        Falls back to structural search if embedding vectors not populated.
-        """
+        """Layer 2: Semantic search via vector similarity."""
         try:
+            from search.embeddings import get_embedding_client
+            client = get_embedding_client()
+            query_vec = client.embed_text(query)
+            
             kg = self._get_kg()
-            # For now, use structural search as fallback since
-            # we haven't populated embedding vectors yet (needs Voyage API)
-            # TODO: Add embedding model integration
+            # Vector search assumes we have vector_search method on KuzuStore
+            # Let's ensure node_type filtering is supported or manually filter
+            rows = kg.vector_search(query_vec, top_k=top_k * 2) # Get more to filter
+            
+            results = []
+            for r in rows:
+                if node_type and r.get("n.type", "") != node_type:
+                    continue
+                results.append(SearchResult(
+                    node_id=r.get("n.id", ""),
+                    label=r.get("n.label", ""),
+                    node_type=r.get("n.type", ""),
+                    file_path=r.get("n.file_path", ""),
+                    line_number=r.get("n.line_number", 0),
+                    signature=r.get("n.signature", ""),
+                    docstring=r.get("n.docstring", ""),
+                    score=r.get("score", 0.7),
+                    source_layer="semantic",
+                ))
+            return results[:top_k]
+        except Exception as e:
+            logger.error(f"Semantic search error: {e}")
+            # Fall back to structural if vectors fail
             return self._search_structural(query, node_type)
-        except Exception:
-            return []
 
     def _search_graph(
         self, query: str, seed_results: list[SearchResult]

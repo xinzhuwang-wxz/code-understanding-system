@@ -33,8 +33,8 @@ def tool_search_by_pattern(query: str, node_type: str = "function", max_results:
         max_results: Maximum number of results.
     """
     try:
-        from graph.kuzu_store import KnowledgeGraph
-        db_path = Path.home() / ".code-kg" / "graph"
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+        db_path = get_default_db_path()
         if not db_path.exists():
             return {"results": [], "error": "No graph database. Analyze a repo first."}
 
@@ -64,39 +64,38 @@ def tool_search_by_pattern(query: str, node_type: str = "function", max_results:
 def tool_search_semantic(query: str, max_results: int = 20) -> dict:
     """Semantic search using embedding similarity.
 
-    Falls back to pattern matching if no embedding model is available.
+    Uses the three-layer search engine (structural → semantic → graph)
+    with adaptive escalation. Produces real vector embeddings via a
+    local transformers model or OpenAI API.
 
     Args:
         query: Natural language query describing what you're looking for.
         max_results: Maximum number of results.
     """
     try:
-        from graph.kuzu_store import KnowledgeGraph
-        db_path = Path.home() / ".code-kg" / "graph"
-        if not db_path.exists():
-            return {"results": [], "error": "No graph database."}
-
-        kg = KnowledgeGraph(str(db_path))
-
-        # Try vector search (requires embedding vectors to be populated)
-        vector_results = kg.vector_search([0.0] * 384, top_k=0)  # dummy call to check
-
-        # Fallback: use pattern search with BM25-like behavior
-        results = kg.search_by_pattern("", query)
-        kg.close()
-
+        from search.engine import get_search_engine
+        engine = get_search_engine(str(get_default_db_path()))
+        response = engine.search(query, max_results=max_results)
+        code_results = [
+            {
+                "id": r.node_id,
+                "label": r.label,
+                "type": r.node_type,
+                "file_path": r.file_path,
+                "line": r.line_number,
+                "signature": r.signature,
+                "docstring": r.docstring,
+                "score": r.score,
+                "source_layer": r.source_layer,
+            }
+            for r in response.results
+        ]
         return {
-            "results": [
-                {
-                    "id": r["n.id"], "label": r["n.label"], "type": r["n.type"],
-                    "file_path": r["n.file_path"], "line": r["n.line_number"],
-                    "signature": r.get("n.signature", ""),
-                    "docstring": r.get("n.docstring", ""),
-                }
-                for r in results[:max_results]
-            ],
-            "total": len(results),
-            "note": "Falling back to pattern search. Install sentence-transformers for true semantic search.",
+            "results": code_results[:max_results],
+            "total": response.total_found,
+            "layers_consulted": response.layers_consulted,
+            "escalation_path": response.escalation_path,
+            "query": response.query,
         }
     except Exception as e:
         return {"results": [], "error": str(e)}
@@ -110,8 +109,8 @@ def tool_traverse_graph(node_id: str, hops: int = 2) -> dict:
         hops: Number of hops to traverse (1-5).
     """
     try:
-        from graph.kuzu_store import KnowledgeGraph
-        db_path = Path.home() / ".code-kg" / "graph"
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+        db_path = get_default_db_path()
         if not db_path.exists():
             return {"neighbors": [], "error": "No graph database."}
 
@@ -158,9 +157,9 @@ def tool_get_context(task_description: str, current_file: str = "", max_tokens: 
     """
     try:
         from memory.store import load_conventions, get_recent_episodes
-        from graph.kuzu_store import KnowledgeGraph
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
 
-        db_path = Path.home() / ".code-kg" / "graph"
+        db_path = get_default_db_path()
         if not db_path.exists():
             return {"context": "No codebase analyzed yet.", "conventions": "", "related_functions": []}
 
@@ -217,8 +216,8 @@ def tool_ask_question(question: str) -> dict:
         keywords = question.replace("?", "").replace(".", "").split()
         query = " ".join(k for k in keywords if len(k) > 2)
 
-        from graph.kuzu_store import KnowledgeGraph
-        db_path = Path.home() / ".code-kg" / "graph"
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+        db_path = get_default_db_path()
         kg = KnowledgeGraph(str(db_path)) if db_path.exists() else None
 
         context = ""
@@ -252,10 +251,10 @@ def tool_analyze_impact(node_id: str) -> dict:
         node_id: Node ID to analyze (e.g., 'src/auth.py:authenticate:42').
     """
     try:
-        from graph.kuzu_store import KnowledgeGraph
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
         from search.llm import get_llm
 
-        db_path = Path.home() / ".code-kg" / "graph"
+        db_path = get_default_db_path()
         if not db_path.exists():
             return {"error": "No graph database."}
 
@@ -278,6 +277,17 @@ def tool_analyze_impact(node_id: str) -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+def tool_search_docs(query: str, max_results: int = 20) -> dict:
+    """Search documentation — Markdown files, source comments, API docs."""
+    try:
+        from search.doc_indexer import DocIndexer
+        indexer = DocIndexer()
+        results = indexer.search_docs(query, max_results)
+        return {"results": results, "total": len(results)}
+    except Exception as e:
+        return {"results": [], "error": str(e)}
 
 
 # ─── Tool Registry ─────────────────────────────────────────────────
@@ -370,6 +380,19 @@ TOOL_REGISTRY = [
             "required": ["node_id"],
         },
         "handler": tool_analyze_impact,
+    },
+    {
+        "name": "search_docs",
+        "description": "Search documentation — Markdown files, source code comments, and API docs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query for documentation."},
+                "max_results": {"type": "integer", "default": 20},
+            },
+            "required": ["query"],
+        },
+        "handler": tool_search_docs,
     },
 ]
 

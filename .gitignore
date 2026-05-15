@@ -5,3 +5,5 @@ __pycache__/
 _ref/
 ~/.code-kg/
 kuzu_data/
+test-results/
+.env

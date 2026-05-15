@@ -141,4 +141,5 @@ def analyze_repo(repo_path: str) -> dict:
     graph.resolve_edges()
     result = graph.to_dict()
     result["repo_name"] = Path(repo_path).name
+    result["repo_path"] = str(Path(repo_path).resolve())
     return result
