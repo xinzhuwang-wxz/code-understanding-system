@@ -76,6 +76,16 @@ CREATE REL TABLE IF NOT EXISTS Edge (
 CREATE REL TABLE IF NOT EXISTS Contains (
     FROM File TO Node
 );
+
+CREATE NODE TABLE IF NOT EXISTS DocNode (
+    id STRING PRIMARY KEY,
+    source_file STRING,
+    source_type STRING,
+    title STRING,
+    content STRING,
+    language STRING,
+    embedding_vector DOUBLE[]
+);
 """
 
 
@@ -109,6 +119,22 @@ class KnowledgeGraph:
                     self._conn.execute(stmt + ";")
                 except Exception:
                     pass  # Already exists
+
+        # Create DocNode table separately (KuzuDB IF NOT EXISTS may be flaky)
+        try:
+            self._conn.execute(
+                "CREATE NODE TABLE DocNode ("
+                "id STRING PRIMARY KEY, "
+                "source_file STRING, "
+                "source_type STRING, "
+                "title STRING, "
+                "content STRING, "
+                "language STRING, "
+                "embedding_vector DOUBLE[]"
+                ")"
+            )
+        except Exception:
+            pass  # Table already exists
 
     def clear(self) -> None:
         """Clear all data from the graph."""
@@ -290,6 +316,18 @@ class KnowledgeGraph:
             f"LIMIT {top_k}"
         )
         return self.query(query, {"query_vec": query_vector})
+
+    def get_dependents(self, node_id: str) -> list[dict[str, Any]]:
+        """Get nodes that depend on (call) this node."""
+        deps = self.query(
+            "MATCH (n:Node {id: $id})<-[:Edge]-(dependent:Node) "
+            "RETURN dependent.id AS id, dependent.label AS label, "
+            "dependent.type AS type, dependent.file_path AS file_path, "
+            "dependent.line_number AS line_number "
+            "LIMIT 50",
+            {"id": node_id},
+        )
+        return deps
 
     def impact_analysis(self, node_id: str) -> dict:
         """Analyze the impact of modifying a node.

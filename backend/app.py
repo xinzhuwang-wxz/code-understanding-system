@@ -36,6 +36,26 @@ class ConventionsRequest(BaseModel):
     repo_path: str = ""
 
 
+class DiffRequest(BaseModel):
+    repo_path: str
+    commit_range: str = "HEAD~1..HEAD"
+
+
+class ImpactRequest(BaseModel):
+    node_id: str = ""
+    repo_path: str = ""
+    commit_range: str = "HEAD~1..HEAD"
+
+
+class DocIndexRequest(BaseModel):
+    repo_path: str
+
+
+class DocSearchRequest(BaseModel):
+    query: str
+    max_results: int = 20
+
+
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest):
     repo = req.repo_path.strip()
@@ -185,6 +205,117 @@ async def status() -> dict[str, Any]:
         result["llm_available"] = False
 
     return result
+
+
+@app.post("/api/diff")
+async def diff_analyze(req: DiffRequest):
+    """Run git diff analysis with impact assessment."""
+    try:
+        from impact.analyzer import DiffAnalyzer
+        expanded = Path(os.path.expanduser(req.repo_path)).resolve()
+        if not expanded.is_dir():
+            raise HTTPException(status_code=400, detail=f"Directory not found: {req.repo_path}")
+
+        analyzer = DiffAnalyzer(repo_path=str(expanded))
+        result = analyzer.analyze(commit_range=req.commit_range)
+
+        return {
+            "commit_range": req.commit_range,
+            "changed_files": result.changed_files,
+            "changed_entities": [
+                {"name": e.entity_name, "type": e.entity_type,
+                 "file": e.file_path, "line_range": e.line_range,
+                 "change": e.change_type}
+                for e in result.changed_entities
+            ],
+            "direct_dependents": result.direct_dependents,
+            "cascading_impact": result.cascading_impact,
+            "total_affected_files": result.total_affected_files,
+            "total_affected_nodes": result.total_affected_nodes,
+            "related_tests": result.related_tests,
+            "summary": result.summary,
+            "risk_level": result.risk_level,
+            "diff_summary": result.diff_summary,
+            "errors": result.raw_errors,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/impact")
+async def impact_analyze(req: ImpactRequest):
+    """Analyze impact — entity-level (node_id) or git diff (repo_path)."""
+    try:
+        # Git diff mode
+        if req.repo_path:
+            from impact.analyzer import DiffAnalyzer
+            expanded = Path(os.path.expanduser(req.repo_path)).resolve()
+            if not expanded.is_dir():
+                raise HTTPException(status_code=400, detail=f"Directory not found: {req.repo_path}")
+            analyzer = DiffAnalyzer(repo_path=str(expanded))
+            result = analyzer.analyze(commit_range=req.commit_range)
+            return {
+                "mode": "git_diff",
+                "commit_range": req.commit_range,
+                "changed_files": result.changed_files,
+                "changed_entities": [
+                    {"name": e.entity_name, "type": e.entity_type,
+                     "file": e.file_path, "change": e.change_type}
+                    for e in result.changed_entities
+                ],
+                "direct_dependents": result.direct_dependents,
+                "cascading_impact": result.cascading_impact,
+                "total_affected_files": result.total_affected_files,
+                "related_tests": result.related_tests,
+                "summary": result.summary,
+                "risk_level": result.risk_level,
+                "diff_summary": result.diff_summary,
+            }
+
+        # Entity mode
+        if req.node_id:
+            from graph.kuzu_store import KnowledgeGraph
+            db_path = Path.home() / ".code-kg" / "graph"
+            if not db_path.exists():
+                raise HTTPException(status_code=404, detail="No graph database. Analyze a repo first.")
+            kg = KnowledgeGraph(str(db_path))
+            impact = kg.impact_analysis(req.node_id)
+            kg.close()
+            return {"mode": "entity", "node_id": req.node_id, **impact}
+
+        raise HTTPException(status_code=400, detail="Provide node_id or repo_path.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/docs/index")
+async def docs_index(req: DocIndexRequest):
+    """Index all documentation in a repo (Markdown + comments + API docs)."""
+    try:
+        from search.doc_indexer import DocIndexer
+        expanded = Path(os.path.expanduser(req.repo_path)).resolve()
+        if not expanded.is_dir():
+            raise HTTPException(status_code=400, detail=f"Directory not found: {req.repo_path}")
+
+        indexer = DocIndexer()
+        stats = indexer.index_all(str(expanded))
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/docs/search")
+async def docs_search(req: DocSearchRequest):
+    """Search indexed documentation."""
+    try:
+        from search.doc_indexer import DocIndexer
+        indexer = DocIndexer()
+        results = indexer.search_docs(req.query, req.max_results)
+        return {"query": req.query, "results": results, "total": len(results)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")

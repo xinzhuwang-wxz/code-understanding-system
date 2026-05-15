@@ -94,11 +94,28 @@ def tool_list_tools() -> list[dict]:
         },
         {
             "name": "analyze_impact",
-            "description": "Analyze impact of modifying a code entity.",
+            "description": "Analyze impact of a git diff or code entity change. "
+            "Pass node_id for entity-level, or repo_path+commit_range for git diff.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"node_id": {"type": "string"}},
-                "required": ["node_id"],
+                "properties": {
+                    "node_id": {"type": "string", "description": "Node ID for entity-level impact."},
+                    "repo_path": {"type": "string", "description": "Repo path for git diff analysis."},
+                    "commit_range": {"type": "string", "default": "HEAD~1..HEAD",
+                                     "description": "Git commit range."},
+                },
+            },
+        },
+        {
+            "name": "search_docs",
+            "description": "Search documentation — Markdown files, source comments, API docs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query."},
+                    "max_results": {"type": "integer", "default": 20},
+                },
+                "required": ["query"],
             },
         },
     ]
@@ -119,7 +136,9 @@ def call_tool(name: str, arguments: dict) -> Any:
     elif name == "ask_question":
         return _ask_question(**arguments)
     elif name == "analyze_impact":
-        return _analyze_impact(**arguments)
+        return _analyze_impact(arguments)
+    elif name == "search_docs":
+        return _search_docs(**arguments)
     else:
         return {"error": f"Unknown tool: {name}"}
 
@@ -252,15 +271,55 @@ def _ask_question(question: str) -> dict:
     return {"question": question, "answer": f"LLM unavailable.\nRelevant code:\n{context[:1000]}", "source": "search"}
 
 
-def _analyze_impact(node_id: str) -> dict:
-    from graph.kuzu_store import KnowledgeGraph
-    db_path = Path.home() / ".code-kg" / "graph"
-    if not db_path.exists():
-        return {"error": "No graph database."}
-    kg = KnowledgeGraph(str(db_path))
-    impact = kg.impact_analysis(node_id)
-    kg.close()
-    return impact
+def _analyze_impact(arguments: dict) -> dict:
+    """Analyze impact — either by node_id (graph) or repo_path (git diff)."""
+    node_id = arguments.get("node_id", "")
+    repo_path = arguments.get("repo_path", "")
+    commit_range = arguments.get("commit_range", "HEAD~1..HEAD")
+
+    # Git diff mode
+    if repo_path:
+        from impact.analyzer import DiffAnalyzer
+        analyzer = DiffAnalyzer(repo_path=repo_path)
+        result = analyzer.analyze(commit_range=commit_range)
+        return {
+            "mode": "git_diff",
+            "commit_range": commit_range,
+            "changed_files": result.changed_files,
+            "changed_entities": [
+                {"name": e.entity_name, "type": e.entity_type,
+                 "file": e.file_path, "change": e.change_type}
+                for e in result.changed_entities
+            ],
+            "direct_dependents": result.direct_dependents,
+            "cascading_impact": result.cascading_impact,
+            "total_affected_files": result.total_affected_files,
+            "related_tests": result.related_tests,
+            "summary": result.summary,
+            "risk_level": result.risk_level,
+            "diff_summary": result.diff_summary,
+        }
+
+    # Entity mode (existing)
+    if node_id:
+        from graph.kuzu_store import KnowledgeGraph
+        db_path = Path.home() / ".code-kg" / "graph"
+        if not db_path.exists():
+            return {"error": "No graph database."}
+        kg = KnowledgeGraph(str(db_path))
+        impact = kg.impact_analysis(node_id)
+        kg.close()
+        return {"mode": "entity", "node_id": node_id, **impact}
+
+    return {"error": "Provide node_id or repo_path."}
+
+
+def _search_docs(query: str, max_results: int = 20) -> dict:
+    """Search documentation index."""
+    from search.doc_indexer import DocIndexer
+    indexer = DocIndexer()
+    results = indexer.search_docs(query, max_results)
+    return {"results": results, "total": len(results)}
 
 
 # ─── JSON-RPC 2.0 Server ───────────────────────────────────────────

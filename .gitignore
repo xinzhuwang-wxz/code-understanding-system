@@ -1,1 +1,7 @@
-.venv/\n__pycache__/\n*.pyc\n.DS_Store\n_ref/\n~/.code-kg/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+_ref/
+~/.code-kg/
+kuzu_data/
