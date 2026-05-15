@@ -73,8 +73,8 @@ jobs:
           print(f'✅ Search: {result.total_found} results in {result.total_latency_ms}ms')
 
           # Test MCP tools
-          from backend.mcp.server_standalone import tool_list_tools, call_tool
-          tools = tool_list_tools()
+          from backend.mcp.tools import ToolRegistry
+          tools = ToolRegistry.list_tools()
           assert len(tools) >= 8, f'Expected 8+ tools, got {len(tools)}'
           print(f'✅ MCP: {len(tools)} tools registered')
 
@@ -99,10 +99,9 @@ jobs:
           from backend.impact.analyzer import DiffAnalyzer
 
           # Impact analysis for this PR
-          analyzer = DiffAnalyzer(repo_path='.', commit_range='HEAD~1..HEAD')
-          result = analyzer.analyze()
-
-          summary = f'''## 📊 CodeKG Analysis
+          analyzer = DiffAnalyzer(repo_path='.')
+          result = analyzer.analyze(commit_range='HEAD~1..HEAD')
+          summary = f'''## CodeKG Analysis
 
           | Metric | Value |
           |--------|-------|

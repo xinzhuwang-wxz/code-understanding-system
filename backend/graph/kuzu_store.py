@@ -1,5 +1,4 @@
 """
-from log import get_logger; logger = get_logger(__name__)
 KuzuDB-backed knowledge graph store.
 
 Extends the existing in-memory Graph with persistence, Cypher queries,
@@ -32,6 +31,8 @@ from typing import Any
 
 import os
 import kuzu
+
+from log import get_logger; logger = get_logger(__name__)
 
 
 @dataclass
@@ -560,6 +561,46 @@ class KnowledgeGraph:
             logger.error(f"Node ingestion error: {e}")
             return {"nodes": 0, "edges": 0, "files": 0, "error": str(e)}
 
+        # Create File nodes and FileContains edges
+        file_count = 0
+        try:
+            self._conn.execute("BEGIN TRANSACTION;")
+            seen_files: set[str] = set()
+            for n in nodes:
+                file_path = str(n.get("file_path", ""))
+                if file_path and file_path not in seen_files:
+                    seen_files.add(file_path)
+                    file_id = f"file:{file_path}"
+                    self._conn.execute(
+                        "MERGE (f:File {path: $path}) "
+                        "ON CREATE SET f.language = $language, f.last_modified = $last_modified "
+                        "ON MATCH SET f.language = $language",
+                        {
+                            "path": file_path,
+                            "language": Path(file_path).suffix.lstrip(".") or "unknown",
+                            "last_modified": "",
+                        },
+                    )
+                    file_count += 1
+                if file_path:
+                    node_id = str(n.get("id", ""))
+                    if node_id:
+                        try:
+                            self._conn.execute(
+                                "MATCH (f:File {path: $file_path}), (n:Node {id: $node_id}) "
+                                "CREATE (f)-[:FileContains]->(n)",
+                                {"file_path": file_path, "node_id": node_id},
+                            )
+                        except Exception:
+                            pass
+            self._conn.execute("COMMIT;")
+        except Exception as e:
+            try:
+                self._conn.execute("ROLLBACK;")
+            except Exception:
+                pass
+            logger.error(f"File/FileContains ingestion error: {e}")
+
         # Batch insert edges using named REL TABLEs
         edge_count = 0
         try:
@@ -599,9 +640,9 @@ class KnowledgeGraph:
                 self._conn.execute("ROLLBACK;")
             except Exception:
                 pass
-            logger.error(f"  ⚠ Edge ingestion error: {e}")
+            logger.error(f"Edge ingestion error: {e}")
 
-        return {"nodes": node_count, "edges": edge_count, "files": 0}
+        return {"nodes": node_count, "edges": edge_count, "files": file_count}
 
     # ─── Query ────────────────────────────────────────────────────
 

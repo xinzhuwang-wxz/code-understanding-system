@@ -1,5 +1,4 @@
 """
-from log import get_logger; logger = get_logger(__name__)
 Tree-sitter based universal code parser.
 
 Replaces the existing language-specific analyzers with a unified
@@ -7,6 +6,8 @@ tree-sitter approach that supports 100+ languages via grammar libraries.
 """
 
 from __future__ import annotations
+
+from log import get_logger; logger = get_logger(__name__)
 
 from dataclasses import dataclass, field
 from pathlib import Path

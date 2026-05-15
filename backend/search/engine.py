@@ -1,5 +1,4 @@
 """
-from log import get_logger; logger = get_logger(__name__)
 Search engine — three-layer retrieval with adaptive escalation.
 
 Layer 1: Structural (tree-sitter pattern matching + BM25)
@@ -11,6 +10,8 @@ Escalation: Mnemosyne-inspired healthy/zero/few/flat diagnosis
 """
 
 from __future__ import annotations
+
+from log import get_logger; logger = get_logger(__name__)
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -144,8 +145,10 @@ class SearchEngine:
         """Layer 1: Pattern-based search via KuzuDB CONTAINS (BM25-like)."""
         try:
             kg = self._get_kg()
-            node_type = node_type or "function"
-            rows = kg.search_by_pattern(node_type, query)
+            rows = kg.search_by_pattern(node_type, query) if node_type else kg.query(
+                "MATCH (n:Node) WHERE n.label CONTAINS $query RETURN n.*, n.label AS label, n.id AS id LIMIT $limit",
+                {"query": query, "limit": 200}
+            )
             results = []
             for r in rows:
                 results.append(SearchResult(

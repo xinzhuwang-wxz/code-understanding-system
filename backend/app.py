@@ -556,7 +556,11 @@ async def scip_index(req: ScipIndexRequest):
                 symbols = result.get("symbols", [])
                 relations = result.get("relations", [])
                 if symbols or relations:
-                    kg.ingest_analysis(req.repo_path, symbols, relations)
+                    kg.ingest_analysis(
+                        req.repo_path,
+                        nodes=symbols,
+                        edges=relations,
+                    )
                 kg.close()
                 result["persisted"] = True
         except Exception:

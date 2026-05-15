@@ -1,6 +1,5 @@
 """
-from log import get_logger; logger = get_logger(__name__)
-Self-contained MCP Server — stdio JSON-RPC 2.0, class-based Tool architecture.
+Self-contained MCP Server — stdio JSON-RPC 2.0, class-based Tool architecture. 
 
 Uses agent-toolkit compatible pattern: Tool base class with __init_subclass__
 auto-registration via ToolRegistry. All tools are in backend/mcp/tool_impls.py.
@@ -9,11 +8,12 @@ Compatible with Claude Code, Codex, OpenClaw, Hermes Agent, and any
 MCP-compliant client.
 
 Usage:
-    python3 -m mcp.server_standalone
-    PYTHONPATH=backend python3 backend/mcp/server_standalone.py
+    python3 -m backend.mcp.server_standalone
 """
 
 from __future__ import annotations
+
+from log import get_logger; logger = get_logger(__name__)
 
 import json
 import sys

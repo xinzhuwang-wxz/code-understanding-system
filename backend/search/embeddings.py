@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List
 
 from log import get_logger; logger = get_logger(__name__)
@@ -33,6 +34,17 @@ class EmbeddingClient:
 
     def __init__(self):
         self.api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key:
+            _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+            if _env_path.exists():
+                with open(_env_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, _, v = line.partition("=")
+                            if k.strip() == "OPENAI_API_KEY":
+                                self.api_key = v.strip().strip('"').strip("'")
+                                break
         self.dim = 1536 if self.api_key else 384
         self._fitted = False
 

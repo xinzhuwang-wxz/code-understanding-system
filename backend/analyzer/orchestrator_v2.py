@@ -1,9 +1,11 @@
 """
-from log import get_logger; logger = get_logger(__name__)
 Updated orchestrator — adds tree-sitter based analysis alongside 
 existing language-specific analyzers.
 """
+
 from __future__ import annotations
+
+from log import get_logger; logger = get_logger(__name__)
 
 import os
 from pathlib import Path

@@ -1,5 +1,5 @@
 """
-MCP Server — 7 tools for code understanding via Model Context Protocol.
+MCP Server — 8 tools for code understanding via Model Context Protocol.
 
 Usage:
     python3 -m mcp.server    (stdio, for Claude Code / Codex / Hermes Agent)

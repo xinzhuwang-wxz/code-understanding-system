@@ -251,6 +251,12 @@ class DocIndexer:
             "total": len(md_chunks) + len(src_comments) + len(api_chunks),
         }
 
+    # ─── Docs Index Entrypoint ──────────────────────────────────
+
+    def index_docs(self, repo_path: str) -> dict[str, int]:
+        """Index all documentation in a repo (convenience alias for index_all)."""
+        return self.index_all(repo_path)
+
     # ─── Search ─────────────────────────────────────────────────
 
     def search_docs(self, query: str, max_results: int = 20) -> list[dict[str, Any]]:

@@ -1,5 +1,4 @@
 """
-from log import get_logger; logger = get_logger(__name__)
 LLM integration — DeepSeek API for code explanation, impact analysis,
 and convention summarization.
 
@@ -8,6 +7,8 @@ Configure via DEEPSEEK_API_KEY environment variable.
 """
 
 from __future__ import annotations
+
+from log import get_logger; logger = get_logger(__name__)
 
 import json
 import os
@@ -150,6 +151,17 @@ conventions:
 Be concise. Only report conventions you can clearly observe."""},
             {"role": "user", "content": f"Analyze these code samples:\n{samples_text}"},
         ], max_tokens=1024, temperature=0.2)
+
+    def summarize_diff(self, diff_text: str, changed_files: list[str]) -> str:
+        """Summarize a git diff and its impact on the codebase."""
+        if not self.available:
+            return f"Diff changes {len(changed_files)} files."
+
+        files_text = "\n".join(f"- {f}" for f in changed_files[:20])
+        return self.chat([
+            {"role": "system", "content": "Summarize this code diff and its impact in 2-3 sentences. Focus on what changed and why it matters."},
+            {"role": "user", "content": f"Files changed:\n{files_text}\n\nDiff:\n{diff_text[:3000]}"},
+        ], max_tokens=256)
 
     def answer_question(self, question: str, context: str) -> str:
         """Answer a natural language question about the codebase."""

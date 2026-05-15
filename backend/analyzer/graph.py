@@ -122,6 +122,12 @@ class Graph:
         for edge in other.edges:
             self.edges.append(edge)
 
+    def node_count(self) -> int:
+        return len(self.nodes)
+
+    def edge_count(self) -> int:
+        return len(self.edges)
+
     def resolve_edges(self) -> None:
         """Resolve edges. Source must exist. Missing targets get placeholder ref nodes."""
         valid = []

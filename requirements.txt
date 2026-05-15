@@ -4,3 +4,6 @@ kuzu>=0.11
 tree-sitter>=0.21
 tree-sitter-languages>=1.10
 pathspec>=0.12
+click>=8.0
+numpy>=1.24
+hnswlib>=0.7
