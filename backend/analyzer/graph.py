@@ -9,6 +9,7 @@ NODE_TYPES = [
     "file",
     "class",
     "function",
+    "method",
     "router",
     "model",
     "service",
@@ -24,6 +25,7 @@ NODE_TYPES = [
 EDGE_TYPES = [
     "imports",
     "calls",
+    "contains",
     "inherits",
     "endpoint_handler",
     "db_read",
@@ -38,6 +40,7 @@ NODE_COLORS = {
     "file": "#66bb6a",
     "class": "#ffa726",
     "function": "#42a5f5",
+    "method": "#90caf9",
     "router": "#ef5350",
     "model": "#ec407a",
     "service": "#26a69a",
@@ -53,6 +56,7 @@ NODE_COLORS = {
 EDGE_COLORS = {
     "imports": "#4fc3f7",
     "calls": "#81c784",
+    "contains": "#ce93d8",
     "inherits": "#ffb74d",
     "endpoint_handler": "#e57373",
     "db_read": "#4dd0e1",

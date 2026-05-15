@@ -333,6 +333,13 @@ class TreeSitterParser:
         symbols: list[ParsedSymbol] = []
         relations: list[ParsedRelation] = []
 
+        # Extract classes FIRST (needed for method classification)
+        class_query = self.QUERIES.get(lang_name, {}).get("classes", "")
+        if class_query:
+            symbols.extend(self._query_symbols(
+                lang_name, file_path, content, tree, class_query, "class"
+            ))
+
         # Extract functions
         funcs_query = self.QUERIES.get(lang_name, {}).get("functions", "")
         if funcs_query:
@@ -340,12 +347,16 @@ class TreeSitterParser:
                 lang_name, file_path, content, tree, funcs_query, "function"
             ))
 
-        # Extract classes
-        class_query = self.QUERIES.get(lang_name, {}).get("classes", "")
-        if class_query:
-            symbols.extend(self._query_symbols(
-                lang_name, file_path, content, tree, class_query, "class"
-            ))
+        # ── Classify methods: functions inside classes → kind="method" ──
+        class_ranges = [(s, s.line_start, s.line_end) for s in symbols if s.kind == "class"]
+        for sym in symbols:
+            if sym.kind != "function":
+                continue
+            for cls_sym, cls_start, cls_end in class_ranges:
+                if cls_start <= sym.line_start <= cls_end:
+                    sym.kind = "method"
+                    sym.parent_class = cls_sym.name
+                    break
 
         # Extract imports
         import_query = self.QUERIES.get(lang_name, {}).get("imports", "")
@@ -551,10 +562,11 @@ class TreeSitterParser:
 
     @staticmethod
     def _node_text(node: Any, content: str) -> str:
-        """Get the text content of a tree-sitter node."""
+        """Get the text content of a tree-sitter node (correct UTF-8 handling)."""
         try:
-            return content[node.start_byte:node.end_byte]
-        except (IndexError, AttributeError):
+            content_bytes = content.encode('utf-8')
+            return content_bytes[node.start_byte:node.end_byte].decode('utf-8')
+        except (IndexError, AttributeError, UnicodeDecodeError):
             return ""
 
 

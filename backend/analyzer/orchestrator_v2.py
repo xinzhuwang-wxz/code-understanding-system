@@ -98,8 +98,20 @@ def analyze_with_treesitter(repo_path: str) -> Graph:
                     target=node.id,
                     type="contains",
                 ))
+                # If method, also link class → method
+                if sym.kind == "method" and sym.parent_class:
+                    cls_id = f"{rel}:{sym.parent_class}:{node.metadata.get('line_start', 0)}"
+                    # Find actual class node by checking known class line ranges
+                    for other_sym in symbols:
+                        if other_sym.kind == "class" and other_sym.name == sym.parent_class:
+                            cls_node = _symbol_to_node(other_sym, repo_path)
+                            graph.add_edge(Edge(
+                                source=cls_node.id,
+                                target=node.id,
+                                type="contains",
+                            ))
+                            break
             for rel in relations:
-                # Create relation edges — source should be file's relative path
                 try:
                     rel_path = str(Path(f["full_path"]).relative_to(repo_path))
                 except ValueError:
