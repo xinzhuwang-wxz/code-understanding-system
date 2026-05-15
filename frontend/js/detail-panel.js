@@ -660,7 +660,16 @@ class DetailPanel {
     // ── Source Code Viewer ──
 
     async _renderSource(node) {
-        if (!node.file_path) return;
+        // External reference node — no source to show
+        if (!node.file_path || node.file_path.startsWith("module:") || node.file_path.startsWith("ref:")) {
+            const section = this._section("VIEW SOURCE");
+            const container = document.createElement("div");
+            container.className = "dp-source-container";
+            container.innerHTML = `<div class="dp-source-empty">External reference — no source available.</div>`;
+            section.appendChild(container);
+            this.bodyEl.appendChild(section);
+            return;
+        }
 
         const lineStart = node.line_number || 0;
         // Show surrounding context: 20 lines before and 40 lines after the node's start line

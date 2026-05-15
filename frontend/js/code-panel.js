@@ -39,9 +39,28 @@ class CodePanel {
 
     _createEditor() {
         if (this.editor) return;
+
+        this.container.style.display = 'flex';
+        this.container.style.flexDirection = 'column';
+
+        // ── Toolbar ──
+        const toolbar = document.createElement('div');
+        toolbar.className = 'cp-toolbar';
+        toolbar.innerHTML = `
+            <button class="cp-back-btn" title="Back to graph view">← Back</button>
+            <span class="cp-file-name" id="cp-filename"></span>
+        `;
+        toolbar.querySelector('.cp-back-btn').onclick = () => {
+            if (window.codeKG && window.codeKG.switchView) {
+                window.codeKG.switchView('force');
+            }
+        };
+        this.container.appendChild(toolbar);
+
+        // ── Editor area ──
         const el = document.createElement('div');
+        el.style.flex = '1';
         el.style.width = '100%';
-        el.style.height = '100%';
         this.container.appendChild(el);
 
         this.editor = monaco.editor.create(el, {
@@ -66,6 +85,9 @@ class CodePanel {
     /** Show source code in the editor. */
     showSource(code, language, filePath) {
         const lang = this._mapLanguage(filePath || '', language);
+        // Update filename in toolbar
+        const fnEl = document.getElementById('cp-filename');
+        if (fnEl) fnEl.textContent = filePath || '';
         const act = () => {
             const model = this.editor.getModel();
             monaco.editor.setModelLanguage(model, lang);

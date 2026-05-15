@@ -1039,6 +1039,13 @@ html, body {
     opacity: 0.8;
 }
 
+.dp-source-empty {
+    padding: 16px 16px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+
 /* ── View Selector ── */
 
 .view-selector {
@@ -1088,6 +1095,38 @@ html, body {
     width: 100%;
     height: 100%;
     display: block;
+}
+
+/* ── CodePanel (Monaco Editor) Toolbar ── */
+
+.cp-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    background: #252526;
+    border-bottom: 1px solid #3e3e42;
+    flex-shrink: 0;
+}
+
+.cp-back-btn {
+    background: #0e639c;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.cp-back-btn:hover { background: #1177bb; }
+
+.cp-file-name {
+    font-size: 11px;
+    color: #8b949e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ── Tree View ── */
