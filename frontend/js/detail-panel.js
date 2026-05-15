@@ -93,12 +93,17 @@ class DetailPanel {
 
     _renderHeader(node) {
         const color = this.nodeColors[node.type] || "#78909c";
+        let blameHtml = "";
+        if (node.git_blame) {
+            blameHtml = `<div style="font-size:10px;color:#484f58;margin-top:4px;" title="git blame">👤 ${this._esc(node.git_blame).substring(0, 120)}</div>`;
+        }
         this.headerEl.innerHTML = `
             <div class="dp-node-identity">
                 <span class="dp-type-badge" style="background:${color};box-shadow:0 0 8px ${color}" aria-label="Node type">${node.type}</span>
                 <span class="dp-node-name">${this._esc(node.label)}</span>
             </div>
             ${node.file_path ? `<div class="dp-file-path">${this._esc(node.file_path)}${node.line_number ? `<span class="dp-line">:${node.line_number}</span>` : ""}</div>` : ""}
+            ${blameHtml}
             <div class="dp-conn-count">${node.degree || 0} connections</div>
         `;
     }

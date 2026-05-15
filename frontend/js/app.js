@@ -23,6 +23,8 @@
     const viewCodecity = document.getElementById("view-codecity");
     const viewMetro = document.getElementById("view-metro");
     const viewCodepanel = document.getElementById("view-codepanel");
+    const viewAgentTrace = document.getElementById("view-agent-trace");
+    const viewDiff = document.getElementById("view-diff");
 
     const viewPanels = {
         force: viewForce,
@@ -32,6 +34,8 @@
         codecity: viewCodecity,
         metro: viewMetro,
         codepanel: viewCodepanel,
+        "agent-trace": viewAgentTrace,
+        diff: viewDiff,
     };
 
     const renderer = new GraphRenderer(canvas, tooltip);
@@ -60,6 +64,7 @@
     let codePanel = null;  // Monaco Editor, loaded on demand
 
     let currentView = "force";
+    let _prevView = "force";
     let currentGraphData = null;
 
     renderer.onNodeClick((node) => {
@@ -68,6 +73,20 @@
             renderer.clearHighlightedPath();
         } else {
             detailPanel.show(node.id);
+
+            // Breadcrumb: record node selection
+            if (window.breadcrumb && node) {
+                window.breadcrumb.pushNode(node.label, node.id);
+            }
+
+            // Agent trace: node explored
+            if (window.agentTrace && node) {
+                window.agentTrace.trace('node_explore', {
+                    label: node.label,
+                    file: node.file_path || '',
+                    line: node.line_number || 0,
+                });
+            }
         }
     });
 
@@ -91,12 +110,47 @@
 
         currentView = viewName;
 
+        // Breadcrumb tracking
+        if (window.breadcrumb) {
+            window.breadcrumb.pushView(viewName);
+        }
+
+        // Agent trace recording
+        if (window.agentTrace) {
+            window.agentTrace.trace('view_switch', { from: _prevView, to: viewName });
+        }
+
+        _prevView = viewName;
+
         // Code panel: lazy-load Monaco
         if (viewName === "codepanel") {
             if (!codePanel) {
                 codePanel = new CodePanel("view-codepanel");
             }
             codePanel.init();
+            return;
+        }
+
+        // Agent trace view: render on switch
+        if (viewName === "agent-trace") {
+            if (window.agentTrace) window.agentTrace.render();
+            return;
+        }
+
+        // Diff view: use dedicated inputs
+        if (viewName === "diff") {
+            if (window.diffView) {
+                const diffRepoPath = document.getElementById('diff-repo-path');
+                const diffCommitRange = document.getElementById('diff-commit-range');
+                const repoPath = (diffRepoPath && diffRepoPath.value.trim()) || repoInput.value.trim();
+                const commitRange = (diffCommitRange && diffCommitRange.value.trim()) || 'HEAD~1..HEAD';
+                if (repoPath) {
+                    window.diffView.analyze(repoPath, commitRange);
+                } else {
+                    document.getElementById('diff-content').innerHTML =
+                        '<div style="color:#8b949e;padding:20px;">Enter a repo path and commit range, then click Analyze.</div>';
+                }
+            }
             return;
         }
 
@@ -155,6 +209,11 @@
             return;
         }
 
+        // Agent trace: analysis started
+        if (window.agentTrace) {
+            window.agentTrace.trace('analyze_start', { repo: repoPath });
+        }
+
         analyzeBtn.disabled = true;
         loadingOverlay.style.display = "";
         setStatus("Analyzing...");
@@ -199,6 +258,14 @@
         sidebar.populate(data);
         detailPanel.setGraphData(data);
         saveBtn.disabled = false;
+
+        // Agent trace: analysis completed
+        if (window.agentTrace) {
+            window.agentTrace.trace('analyze_done', {
+                nodes: data.stats?.total_nodes || data.nodes?.length || 0,
+                edges: data.stats?.total_edges || data.edges?.length || 0,
+            });
+        }
 
         // Update alternate views if they're visible
         if (currentView !== "force" && views[currentView]) {
@@ -347,6 +414,20 @@
         questionsRefreshBtn.addEventListener("click", () => {
             const repoPath = repoInput.value.trim();
             if (repoPath) loadQuestions(repoPath);
+        });
+    }
+
+    // Diff analyze button
+    const diffAnalyzeBtn = document.getElementById("diff-analyze-btn");
+    if (diffAnalyzeBtn) {
+        diffAnalyzeBtn.addEventListener("click", () => {
+            if (window.diffView) {
+                const repoPath = (document.getElementById('diff-repo-path')?.value?.trim()) || repoInput.value.trim();
+                const commitRange = (document.getElementById('diff-commit-range')?.value?.trim()) || 'HEAD~1..HEAD';
+                if (repoPath) {
+                    window.diffView.analyze(repoPath, commitRange);
+                }
+            }
         });
     }
 

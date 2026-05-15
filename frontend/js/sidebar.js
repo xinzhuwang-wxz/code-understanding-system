@@ -138,27 +138,35 @@ class SidebarController {
 
     _initSearch() {
         let debounce = null;
+        let apiDebounce = null;
+
+        // On typing: show local matches in graph (fast feedback)
         this.searchInput.addEventListener("input", () => {
             clearTimeout(debounce);
-            debounce = setTimeout(() => this._performSearch(), 300);
+            debounce = setTimeout(() => this._performLocalSearch(), 150);
+
+            // On pause > 800ms: also trigger backend search for results panel
+            clearTimeout(apiDebounce);
+            apiDebounce = setTimeout(() => this._performSearchAPI(), 800);
         });
-        // Also search on Enter key
+
+        // On Enter: immediate backend search
         this.searchInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 clearTimeout(debounce);
+                clearTimeout(apiDebounce);
                 this._performSearchAPI();
             }
         });
     }
 
-    _performSearch() {
+    _performLocalSearch() {
         const query = this.searchInput.value.trim().toLowerCase();
         if (!query || !this.graphData) {
             this.graph.setSearchMatches([]);
             return;
         }
-
-        // Local search (fast, for loaded graph)
+        // Fast client-side highlight in the force graph
         const matches = [];
         for (const n of this.graphData.nodes) {
             const label = (n.label || "").toLowerCase();
@@ -174,19 +182,47 @@ class SidebarController {
         const query = this.searchInput.value.trim();
         if (!query) return;
 
+        // Agent trace: search event
+        if (window.agentTrace) {
+            window.agentTrace.trace('search', { query: query.substring(0, 60) });
+        }
+
+        // Breadcrumb: search event
+        if (window.breadcrumb) {
+            window.breadcrumb.pushSearch(query);
+        }
+
         try {
             const resp = await fetch("/api/search", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ query, node_type: "function", max_results: 15 }),
+                body: JSON.stringify({ query, node_type: "", max_results: 20 }),
             });
             const data = await resp.json();
+
+            // Also highlight matches in force graph
+            if (data.results && this.graph) {
+                const matchIds = data.results.map(r => r.node_id);
+                this.graph.setSearchMatches(matchIds);
+            }
+
+            // Agent trace: search complete
+            if (window.agentTrace) {
+                window.agentTrace.trace('search', {
+                    query: query.substring(0, 60),
+                    results: data.total || 0,
+                    latency: data.latency_ms,
+                });
+            }
+
             if (data.results && data.results.length > 0) {
-                // Show results in detail panel
                 this._showSearchResults(data);
             }
         } catch (err) {
             console.warn("Search API error:", err);
+            if (window.agentTrace) {
+                window.agentTrace.trace('error', { message: 'Search API: ' + err.message });
+            }
         }
     }
 
@@ -195,20 +231,34 @@ class SidebarController {
         const header = panel.querySelector(".dp-header");
         const body = panel.querySelector(".dp-body");
 
-        const layers = data.layers_consulted || data.layers || [];
+        const layers = data.layers || data.layers_consulted || [];
+        const escalation = data.escalation || data.escalation_path || [];
         const latency = data.latency_ms || data.total_latency_ms || 0;
-        header.innerHTML = `<h2>Search: "${data.query}"</h2>
-            <p class="dp-meta">${data.total} results · ${latency}ms · ${layers.join(" → ")}</p>`;
 
-        let html = '<ul class="search-results">';
+        header.innerHTML = `
+            <h2 style="font-size:14px;margin:0 0 4px;">Search: "${this._esc(data.query)}"</h2>
+            <p class="dp-meta">
+                ${data.total || 0} results · ${latency.toFixed(0)}ms
+                ${layers.length ? ' · ' + layers.join(' → ') : ''}
+                ${escalation.length ? '<br><small>' + escalation.join(', ') + '</small>' : ''}
+            </p>`;
+
+        let html = '<ul class="search-results" style="list-style:none;padding:0;margin:0;">';
         for (const r of data.results) {
+            const typeColor = this._nodeColor(r.type);
             html += `
-                <li class="search-result-item" data-node-id="${r.node_id}" onclick="window.codeKG.showNode('${r.node_id}')">
-                    <span class="sr-type" style="color:var(--node-${r.type}-color, #42a5f5)">${r.type}</span>
-                    <strong>${r.label}</strong>
-                    <span class="sr-score">${r.score ? r.score.toFixed(3) : ""}</span>
-                    <div class="sr-location">${r.file_path}:${r.line_number}</div>
-                    ${r.docstring ? `<div class="sr-docstring">${r.docstring.substring(0, 200)}</div>` : ""}
+                <li class="search-result-item"
+                    onclick="window.codeKG.showNode('${this._esc(r.node_id)}')">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="sr-type-badge" style="background:${typeColor};">${r.type || '?'}</span>
+                        <strong class="sr-name">${this._esc(r.label)}</strong>
+                        ${r.score ? `<span class="sr-score">${r.score.toFixed(3)}</span>` : ''}
+                    </div>
+                    <div class="sr-location">
+                        ${this._esc(r.file_path || '')}:${r.line_number || 0}
+                        <span class="sr-source">${r.source || ''}</span>
+                    </div>
+                    ${r.docstring ? `<div class="sr-docstring">${this._esc(r.docstring).substring(0, 150)}</div>` : ''}
                 </li>`;
         }
         html += "</ul>";
@@ -216,5 +266,13 @@ class SidebarController {
 
         panel.removeAttribute("aria-hidden");
         panel.style.display = "";
+    }
+
+    _esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    _nodeColor(type) {
+        const map = { function: '#58a6ff', class: '#f78166', module: '#8b949e',
+            file: '#6e7681', method: '#a5d6ff', variable: '#d2a8ff', config: '#ffa657' };
+        return map[type] || '#58a6ff';
     }
 }

@@ -141,16 +141,37 @@ class LLMClient:
         )
 
         return self.chat([
-            {"role": "system", "content": """Extract coding conventions from code samples. Output valid YAML:
+            {"role": "system", "content": """You are analyzing code samples to extract coding conventions for AI agents. Output valid YAML only.
+
+Rules:
+1. Name conventions by language: python, javascript, typescript, etc.
+2. For each language, report OBSERVABLE patterns only — not guesses
+3. For naming: report the actual case used (snake_case, camelCase, PascalCase)
+4. For structure: report directory patterns, file naming conventions
+5. Anti-patterns: code smells or deprecated patterns you notice
+6. Use full, clear names — never abbreviate (e.g., "tensor" not "tenso")
+7. If you see less than 3 samples of a pattern, mark it as tentative
+8. Keep descriptions concise — one line per observation
+
+Format:
 conventions:
-  <language>:
+  python:
     naming:
-      <category>: <pattern>
+      functions: "snake_case (e.g., train_model)"
+      classes: "PascalCase (e.g., ModelTrainer)"
+      constants: "UPPER_SNAKE_CASE (e.g., MAX_EPOCHS)"
     structure:
-      <category>: <pattern>
+      models: "src/models/<name>.py"
+      tests: "tests/test_<module>.py"
     anti_patterns:
-      - "<pattern>"
-Be concise. Only report conventions you can clearly observe."""},
+      - "Avoid wildcard imports (from X import *)"
+    architecture:
+      state_management: "Uses PyTorch Lightning for training orchestration"
+  javascript:
+    naming:
+      components: "PascalCase (e.g., UserProfile)"
+      hooks: "camelCase with useXxx prefix (e.g., useAuth)"
+"""},
             {"role": "user", "content": f"Analyze these code samples:\n{samples_text}"},
         ], max_tokens=1024, temperature=0.2)
 

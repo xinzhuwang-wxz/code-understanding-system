@@ -1309,3 +1309,178 @@ html, body {
 .section-title .btn-icon {
     margin-top: -2px;
 }
+
+/* ── Breadcrumb ── */
+
+.breadcrumb {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    z-index: 110;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(13, 17, 23, 0.85);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 12px;
+    backdrop-filter: blur(8px);
+    max-width: calc(100% - 380px);
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+}
+
+.breadcrumb::-webkit-scrollbar { display: none; }
+
+.bc-item {
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+
+.bc-item:hover {
+    color: var(--accent);
+    background: var(--bg-hover);
+}
+
+.bc-current {
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: default;
+}
+
+.bc-root { color: var(--accent); font-weight: 700; }
+
+.bc-sep {
+    color: var(--text-muted);
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+/* ── Agent Trace View ── */
+
+.trace-entry {
+    padding: 6px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 12px;
+    color: #c9d1d9;
+}
+
+.trace-entry:last-child { border-bottom: none; }
+
+/* ── Diff View ── */
+
+.diff-input-row {
+    margin-bottom: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+.diff-input {
+    flex: 2;
+    padding: 6px 10px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    font-size: 12px;
+}
+
+.diff-input-short {
+    flex: 1;
+    padding: 6px 10px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    font-size: 12px;
+}
+
+.diff-btn {
+    padding: 6px 14px;
+    background: #238636;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.diff-btn:hover { background: #2ea043; }
+
+.diff-risk-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* ── Search Results Panel ── */
+
+.search-result-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #21262d;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.search-result-item:hover { background: #1c2128; }
+
+.sr-type-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    color: #fff;
+}
+
+.sr-name {
+    color: #c9d1d9;
+    font-weight: 600;
+}
+
+.sr-score {
+    font-size: 10px;
+    color: #58a6ff;
+    margin-left: auto;
+}
+
+.sr-location {
+    font-size: 11px;
+    color: #8b949e;
+    margin-top: 2px;
+}
+
+.sr-source {
+    color: #484f58;
+    margin-left: 6px;
+}
+
+.sr-docstring {
+    font-size: 11px;
+    color: #6e7681;
+    margin-top: 2px;
+}
+
+/* ── Loading States ── */
+
+.view-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #8b949e;
+    font-size: 13px;
+    gap: 12px;
+}
+
+.view-loading .spinner {
+    width: 28px;
+    height: 28px;
+}

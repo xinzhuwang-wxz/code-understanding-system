@@ -275,6 +275,31 @@ async def status() -> dict[str, Any]:
     return result
 
 
+@app.post("/api/clear")
+async def clear_data() -> dict[str, Any]:
+    """Clear all analyzed data from the knowledge graph.
+
+    Resets the database and search engine. Use before analyzing
+    a different repository to prevent cross-contamination.
+    """
+    try:
+        from graph.kuzu_store import KnowledgeGraph, get_default_db_path
+        from search.engine import reset_search_engine
+
+        db_path = get_default_db_path()
+        cleared = False
+        if db_path.exists():
+            kg = KnowledgeGraph(str(db_path))
+            kg.clear()
+            kg.close()
+            cleared = True
+
+        reset_search_engine()
+        return {"status": "cleared", "database": str(db_path), "cleared": cleared}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/capabilities")
 async def capabilities():
     """Agent-friendly discovery endpoint: lists all tools and features."""

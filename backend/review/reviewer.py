@@ -152,11 +152,25 @@ class CodeReviewer:
             for issue_data in llm_review.get("issues", []):
                 result.issues.append(ReviewIssue(**issue_data))
 
-        # Deduplicate
+        # Deduplicate — match by severity + file + line or message prefix
         seen: set[str] = set()
+        seen_lines: set[str] = set()  # Track which lines already have static issues
         unique_issues: list[ReviewIssue] = []
+
+        # First pass: collect all static issues (they have rule_ids and line numbers)
         for issue in result.issues:
-            key = f"{issue.file_path}:{issue.line}:{issue.message}"
+            if issue.rule_id and issue.line > 0:
+                seen_lines.add(f"{issue.file_path}:{issue.line}:{issue.severity}")
+
+        # Second pass: dedup
+        for issue in result.issues:
+            # Skip LLM issues at lines already covered by static analysis
+            if not issue.rule_id and issue.line > 0:
+                line_key = f"{issue.file_path}:{issue.line}:{issue.severity}"
+                if line_key in seen_lines:
+                    continue
+
+            key = f"{issue.file_path}:{issue.line}:{issue.rule_id}:{issue.message[:20]}"
             if key not in seen:
                 seen.add(key)
                 unique_issues.append(issue)

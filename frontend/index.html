@@ -69,6 +69,8 @@
                 <option value="codecity">Code City 3D</option>
                 <option value="metro">Metro Map</option>
                 <option value="codepanel">Code Panel</option>
+                <option value="agent-trace">Agent Trace</option>
+                <option value="diff">Diff Analysis</option>
             </select>
         </div>
 
@@ -120,6 +122,11 @@
     </aside>
 
     <main id="graph-container" aria-label="Code graph visualization">
+        <!-- Breadcrumb navigation -->
+        <nav id="breadcrumb" class="breadcrumb" aria-label="Navigation breadcrumb">
+            <span class="bc-item bc-root">CodeKG</span>
+        </nav>
+
         <div id="view-force" class="view-panel">
             <canvas id="graph-canvas"></canvas>
         </div>
@@ -129,6 +136,21 @@
         <div id="view-codecity" class="view-panel" style="display:none;"></div>
         <div id="view-metro" class="view-panel" style="display:none;"></div>
         <div id="view-codepanel" class="view-panel" style="display:none; background:#1e1e1e;"></div>
+        <!-- Agent trace view -->
+        <div id="view-agent-trace" class="view-panel" style="display:none; overflow-y:auto; padding:16px;">
+            <h2 style="color:#c9d1d9;font-size:16px;margin-bottom:12px;">🤖 Agent Trace</h2>
+            <div id="agent-trace-content"></div>
+        </div>
+        <!-- Diff view -->
+        <div id="view-diff" class="view-panel" style="display:none; overflow-y:auto; padding:16px;">
+            <h2 style="color:#c9d1d9;font-size:16px;margin-bottom:12px;">📊 Diff Analysis</h2>
+            <div class="diff-input-row">
+                <input type="text" id="diff-repo-path" class="diff-input" placeholder="Repo path">
+                <input type="text" id="diff-commit-range" class="diff-input-short" placeholder="HEAD~1..HEAD" value="HEAD~1..HEAD">
+                <button id="diff-analyze-btn" class="diff-btn">Analyze</button>
+            </div>
+            <div id="diff-content"></div>
+        </div>
         <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
         <div id="loading-overlay" class="loading-overlay" style="display:none;" aria-label="Loading indicator">
             <div class="spinner"></div>
@@ -164,6 +186,9 @@
     <script src="/static/js/views/sunburst-view.js"></script>
     <script src="/static/js/views/codecity-view.js"></script>
     <script src="/static/js/views/metro-view.js"></script>
+    <script src="/static/js/views/agent-trace-view.js"></script>
+    <script src="/static/js/views/diff-view.js"></script>
+    <script src="/static/js/breadcrumb.js"></script>
     <script src="/static/js/code-panel.js"></script>
     <script src="/static/js/sidebar.js"></script>
     <script src="/static/js/detail-panel.js"></script>

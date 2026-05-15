@@ -1,11 +1,12 @@
-"""
-Tree-sitter based universal code parser.
+"""Tree-sitter based universal code parser.
 
 Replaces the existing language-specific analyzers with a unified
 tree-sitter approach that supports 100+ languages via grammar libraries.
 """
-
 from __future__ import annotations
+
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="tree_sitter")
 
 from log import get_logger; logger = get_logger(__name__)
 

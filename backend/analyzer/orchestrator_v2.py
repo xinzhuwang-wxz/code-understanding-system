@@ -157,6 +157,13 @@ def analyze_repo_universal(repo_path: str, persist: bool = True) -> dict[str, An
     result["symbol_count"] = graph.node_count() if hasattr(graph, 'node_count') else len(graph.nodes)
     result["edge_count"] = graph.edge_count() if hasattr(graph, 'edge_count') else len(graph.edges)
 
+    # Enrich nodes with git blame data
+    try:
+        from analyzer.git_blame import enrich_nodes_with_blame
+        enrich_nodes_with_blame(result.get("nodes", []), repo_path)
+    except Exception:
+        pass  # Blame is best-effort, don't block analysis
+
     if persist:
         try:
             # Generate embeddings before persisting
@@ -192,7 +199,10 @@ def analyze_repo_universal(repo_path: str, persist: bool = True) -> dict[str, An
                 repo_path,
                 result.get("nodes", []),
                 result.get("edges", []),
+                replace=True,  # Clear stale data from previous repo analyses
             )
+            # Rebuild HNSW from fresh embedding vectors
+            kg._rebuild_hnsw_from_db()
             kg_stats = kg.stats()
             result["persistent"] = True
             result["kg_stats"] = kg_stats

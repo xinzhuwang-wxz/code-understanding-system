@@ -331,11 +331,11 @@ class KnowledgeGraph:
 
     @property
     def _hnsw_index_path(self) -> Path:
-        return self.db_path / "hnsw_index.bin"
+        return self.db_path / "hnsw" / "index.bin"
 
     @property
     def _hnsw_ids_path(self) -> Path:
-        return self.db_path / "hnsw_ids.npy"
+        return self.db_path / "hnsw" / "ids.npy"
 
     def _init_hnsw(self) -> None:
         """Load or build the HNSW vector index."""
@@ -394,6 +394,7 @@ class KnowledgeGraph:
             return
         try:
             import numpy as np
+            self._hnsw_index_path.parent.mkdir(parents=True, exist_ok=True)
             self._hnsw_index.save_index(str(self._hnsw_index_path))
             np.save(str(self._hnsw_ids_path), np.array(self._hnsw_ids, dtype=object))
         except Exception as e:
@@ -446,9 +447,24 @@ class KnowledgeGraph:
             get_logger(__name__).warning(f"HNSW update error: {e}")
 
     def clear(self) -> None:
-        """Clear all data from the graph."""
+        """Clear all data from the graph, including HNSW index files."""
         self._conn.execute("MATCH (n:Node) DETACH DELETE n;")
         self._conn.execute("MATCH (f:File) DETACH DELETE f;")
+        # Also clear HNSW sidecar files
+        self._hnsw_index = None
+        self._hnsw_ids = []
+        hnsw_dir = self.db_path / "hnsw"
+        for p in (hnsw_dir / "index.bin", hnsw_dir / "ids.npy"):
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+        if hnsw_dir.exists():
+            try:
+                hnsw_dir.rmdir()
+            except Exception:
+                pass
 
     # ─── Edge Type Resolution ─────────────────────────────────────
 
@@ -547,6 +563,8 @@ class KnowledgeGraph:
                     self._update_hnsw_index(node_data["id"], embedding)
                 node_count += 1
             self._conn.execute("COMMIT;")
+            # Persist HNSW index after batch node ingest
+            self._save_hnsw_index()
         except Exception as e:
             try:
                 self._conn.execute("ROLLBACK;")
@@ -637,6 +655,19 @@ class KnowledgeGraph:
             logger.error(f"Edge ingestion error: {e}")
 
         return {"nodes": node_count, "edges": edge_count, "files": file_count}
+
+    def _rebuild_hnsw_from_db(self) -> None:
+        """Force-rebuild the HNSW index from all embedding vectors in KuzuDB."""
+        self._hnsw_index = None
+        self._hnsw_ids = []
+        hnsw_dir = self.db_path / "hnsw"
+        for p in (hnsw_dir / "index.bin", hnsw_dir / "ids.npy"):
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+        self._init_hnsw()
 
     # ─── Query ────────────────────────────────────────────────────
 
