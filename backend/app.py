@@ -792,21 +792,60 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
                     })
                 context = "\n\n".join(context_parts)
             else:
-                # Fallback: search returned 0 — grab top functions/classes as context
+                # Search returned 0 — extract keywords and re-try structural search
                 from graph.kuzu_store import KnowledgeGraph, get_default_db_path
                 db_path = get_default_db_path()
-                if db_path.exists():
+                if not db_path.exists():
+                    pass
+                else:
                     kg = KnowledgeGraph(str(db_path))
-                    fallback_rows = kg.query(
-                        "MATCH (n:Node) WHERE n.type IN ['function', 'class', 'method'] "
-                        "AND n.file_path IS NOT NULL AND n.file_path <> '' "
-                        "RETURN n.id, n.label, n.type, n.file_path, n.line_number, n.signature, n.docstring "
-                        "ORDER BY n.type, n.label LIMIT $limit",
-                        {"limit": req.max_context * 5}
-                    )
+                    # Split question into words, filter stopwords, search each
+                    import re
+                    stopwords = {"what", "is", "are", "the", "a", "an", "in", "of", "to",
+                                 "does", "do", "how", "can", "i", "you", "it", "and", "or",
+                                 "that", "this", "for", "on", "with", "as", "by", "at", "from",
+                                 "be", "have", "has", "been", "was", "were", "will", "would",
+                                 "could", "should", "most", "mean", "important", "function",
+                                 "functions", "class", "classes", "codebase", "code", "tell",
+                                 "explain", "describe", "about", "which", "there", "any"}
+                    tokens = re.findall(r'[a-zA-Z_]\w+', req.question.lower())
+                    keywords = [t for t in tokens if t not in stopwords and len(t) > 1]
+                    if not keywords:
+                        keywords = [req.question.lower().strip()]
+
+                    seen_ids: set = set()
+                    fallback_rows = []
+                    for kw in keywords[:5]:  # at most 5 keywords
+                        rows = kg.query(
+                            "MATCH (n:Node) WHERE "
+                            "(n.type IN ['function', 'class', 'method'] OR n.type = 'file' OR n.type = 'module') "
+                            "AND (n.label CONTAINS $kw OR n.file_path CONTAINS $kw OR n.docstring CONTAINS $kw) "
+                            "AND n.file_path IS NOT NULL AND n.file_path <> '' "
+                            "RETURN n.id, n.label, n.type, n.file_path, n.line_number, n.signature, n.docstring "
+                            "LIMIT 20",
+                            {"kw": kw}
+                        )
+                        for r in rows:
+                            nid = r.get("n.id", "")
+                            if nid not in seen_ids:
+                                seen_ids.add(nid)
+                                fallback_rows.append(r)
+                        if len(fallback_rows) >= req.max_context * 5:
+                            break
+
+                    if not fallback_rows:
+                        # Still nothing — grab top nodes by presence of docstring
+                        fallback_rows = kg.query(
+                            "MATCH (n:Node) WHERE n.type IN ['function', 'class', 'method'] "
+                            "AND n.file_path IS NOT NULL AND n.file_path <> '' "
+                            "AND n.docstring IS NOT NULL AND n.docstring <> '' "
+                            "RETURN n.id, n.label, n.type, n.file_path, n.line_number, n.signature, n.docstring "
+                            "ORDER BY n.type, n.label LIMIT $limit",
+                            {"limit": req.max_context * 5}
+                        )
                     kg.close()
                     context_parts = []
-                    for r in fallback_rows:
+                    for r in fallback_rows[:req.max_context * 5]:
                         node_ctx = f"[{r.get('n.label','')}] ({r.get('n.type','')} @ {r.get('n.file_path','')}:{r.get('n.line_number',0)})"
                         sig = r.get('n.signature', '')
                         if sig:
@@ -828,10 +867,42 @@ async def ask_ai(req: AskRequest) -> dict[str, Any]:
             pass  # context is best-effort
 
         answer = llm.answer_question(req.question, context[:6000])
+
+        # Only keep references whose label (or core name) appears in the LLM's answer.
+        # Strip prefixes like "ref:", "module:", "script/" so "module:sys" matches "sys".
+        answer_lower = answer.lower()
+        checked: set = set()
+        filtered_refs = []
+        for r in refs:
+            if r["node_id"] in checked:
+                continue
+            label = r["label"].lower()
+            # Try full label first, then strip common prefixes
+            if label in answer_lower:
+                filtered_refs.append(r)
+                checked.add(r["node_id"])
+                continue
+            # Try core name after stripping prefixes
+            import re as _re
+            core = _re.sub(r'^(ref:|module:|script/)', '', label)
+            if core != label and core in answer_lower:
+                filtered_refs.append(r)
+                checked.add(r["node_id"])
+                continue
+            # Try file name only (last component of path)
+            if '/' in label:
+                fname = label.rsplit('/', 1)[-1].split(':')[0]
+                if fname and fname != label and fname in answer_lower:
+                    filtered_refs.append(r)
+                    checked.add(r["node_id"])
+        if not filtered_refs and refs:
+            # LLM didn't name any specific node — show at most 5 context nodes
+            filtered_refs = refs[:5]
+
         return {
             "question": req.question,
             "answer": answer,
-            "references": refs,
+            "references": filtered_refs,
             "mode": "llm",
         }
     except Exception as e:
