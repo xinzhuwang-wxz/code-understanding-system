@@ -438,6 +438,26 @@
         }
     });
 
+    // Check LLM status and update badge
+    (async () => {
+        try {
+            const resp = await fetch("/api/status");
+            const data = await resp.json();
+            const badge = document.getElementById("llm-status");
+            if (badge) {
+                if (data.llm_available) {
+                    badge.textContent = "🤖 LLM On";
+                    badge.style.background = "rgba(63,185,80,0.15)";
+                    badge.style.color = "#3fb950";
+                } else {
+                    badge.textContent = "⚡ LLM Off";
+                    badge.style.background = "rgba(210,153,34,0.15)";
+                    badge.style.color = "#d29922";
+                }
+            }
+        } catch (_) {}
+    })();
+
     // Expose to detail-panel for "Open in Editor" button
     window.codeKG = {
         switchView,

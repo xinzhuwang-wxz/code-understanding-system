@@ -527,8 +527,13 @@ class TreeSitterParser:
 
             for node, tag in captures:
                 if tag == "call_name":
-                    call_name = self._node_text(node, content)
-                    if call_name and call_name not in ("require", "super"):
+                    call_name = self._node_text(node, content).strip()
+                    # Filter: only accept valid identifier-like names
+                    if (call_name and call_name not in ("require", "super")
+                            and not any(c in call_name for c in '("{[<\'\n ')
+                            and len(call_name) >= 2 and len(call_name) <= 80
+                            and not call_name[0].isdigit()
+                            and not call_name.startswith('__')):
                         key = f"{file_path}:{call_name}"
                         if key not in seen:
                             seen.add(key)

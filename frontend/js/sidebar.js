@@ -140,17 +140,18 @@ class SidebarController {
         let debounce = null;
         let apiDebounce = null;
 
+        const searchBtn = document.getElementById("search-btn");
+
         // On typing: show local matches in graph (fast feedback)
         this.searchInput.addEventListener("input", () => {
             clearTimeout(debounce);
             debounce = setTimeout(() => this._performLocalSearch(), 150);
 
-            // On pause > 800ms: also trigger backend search for results panel
             clearTimeout(apiDebounce);
             apiDebounce = setTimeout(() => this._performSearchAPI(), 800);
         });
 
-        // On Enter: immediate backend search
+        // On Enter or search button: immediate backend search
         this.searchInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 clearTimeout(debounce);
@@ -158,6 +159,27 @@ class SidebarController {
                 this._performSearchAPI();
             }
         });
+
+        if (searchBtn) {
+            searchBtn.addEventListener("click", () => {
+                clearTimeout(debounce);
+                clearTimeout(apiDebounce);
+                this._performSearchAPI();
+            });
+        }
+
+        // AI Ask
+        const aiAskInput = document.getElementById("ai-ask-input");
+        const aiAskBtn = document.getElementById("ai-ask-btn");
+        if (aiAskBtn && aiAskInput) {
+            aiAskBtn.addEventListener("click", () => this._performAIAsk());
+            aiAskInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && e.metaKey) {
+                    e.preventDefault();
+                    this._performAIAsk();
+                }
+            });
+        }
     }
 
     _performLocalSearch() {
@@ -274,5 +296,58 @@ class SidebarController {
         const map = { function: '#58a6ff', class: '#f78166', module: '#8b949e',
             file: '#6e7681', method: '#a5d6ff', variable: '#d2a8ff', config: '#ffa657' };
         return map[type] || '#58a6ff';
+    }
+
+    async _performAIAsk() {
+        const question = document.getElementById("ai-ask-input")?.value?.trim();
+        const answerEl = document.getElementById("ai-answer");
+        if (!question || !answerEl) return;
+
+        answerEl.style.display = "";
+        answerEl.innerHTML = '<span style="color:#58a6ff;">✨ Thinking...</span>';
+
+        try {
+            const resp = await fetch("/api/explain", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ node_id: question }),
+            });
+            // Also search first for context
+            const searchResp = await fetch("/api/search", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query: question, node_type: "", max_results: 3 }),
+            });
+            const searchData = await searchResp.json();
+
+            // Then ask the LLM directly
+            const mcpResp = await fetch("/api/impact", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ node_id: question }),
+            });
+            const explainData = await resp.json();
+
+            let html = `<div style="margin-bottom:8px;color:#58a6ff;font-weight:600;">🤖 AI Response</div>`;
+            html += `<div style="margin-bottom:8px;">${explainData.explanation || 'No explanation available.'}</div>`;
+
+            if (searchData.results && searchData.results.length > 0) {
+                html += `<div style="margin-bottom:4px;color:#8b949e;font-size:10px;">📎 Related code (${searchData.results.length} results):</div>`;
+                for (const r of searchData.results.slice(0, 3)) {
+                    html += `<div style="font-size:10px;padding:2px 0;color:#6e7681;">${this._esc(r.label)} @ ${this._esc(r.file_path)}:${r.line_number}</div>`;
+                }
+            }
+
+            answerEl.innerHTML = html;
+
+            if (window.agentTrace) {
+                window.agentTrace.trace('search', { query: question, results: searchData.total || 0 });
+            }
+            if (window.breadcrumb) {
+                window.breadcrumb.pushSearch(question);
+            }
+        } catch (err) {
+            answerEl.innerHTML = `<div style="color:#f85149;">AI Ask failed: ${err.message}</div>`;
+        }
     }
 }

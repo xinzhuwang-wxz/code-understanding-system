@@ -688,7 +688,6 @@ class DetailPanel {
                 return;
             }
 
-            const highlighted = this._syntaxHighlight(data.content);
             const lines = data.content.split("\n");
             const actualStart = data.line_start || 1;
 

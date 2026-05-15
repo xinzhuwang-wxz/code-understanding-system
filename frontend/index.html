@@ -6,13 +6,14 @@
     <title>CodeKG</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
     <aside id="sidebar" aria-label="Controls sidebar">
         <div class="sidebar-header">
             <h1 class="logo">CodeKG</h1>
+            <span id="llm-status" style="font-size:9px;padding:2px 6px;border-radius:8px;background:#21262d;color:#8b949e;">LLM</span>
         </div>
 
         <div class="sidebar-section">
@@ -40,13 +41,32 @@
         </div>
 
         <div class="sidebar-section">
-            <input
-                type="text"
-                id="search-input"
-                class="text-input"
-                placeholder="Search nodes..."
-                aria-label="Search nodes"
-            >
+            <div style="display:flex;gap:4px;align-items:center;">
+                <input
+                    type="text"
+                    id="search-input"
+                    class="text-input"
+                    placeholder="Search code..."
+                    aria-label="Search code"
+                    style="flex:1;"
+                >
+                <button id="search-btn" class="btn-icon" style="float:none;margin:0;padding:6px 10px;" aria-label="Execute search">🔍</button>
+            </div>
+        </div>
+
+        <div class="sidebar-section" id="ai-ask-section">
+            <div style="display:flex;gap:4px;align-items:flex-start;">
+                <textarea
+                    id="ai-ask-input"
+                    class="text-input"
+                    placeholder="Ask AI about this codebase..."
+                    rows="2"
+                    aria-label="AI natural language search"
+                    style="flex:1;resize:vertical;font-size:11px;"
+                ></textarea>
+                <button id="ai-ask-btn" class="btn-primary" style="padding:6px 10px;font-size:11px;flex-shrink:0;" aria-label="Ask AI">✨ Ask</button>
+            </div>
+            <div id="ai-answer" style="display:none;margin-top:6px;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:11px;color:#c9d1d9;max-height:200px;overflow-y:auto;line-height:1.5;"></div>
         </div>
 
         <div class="sidebar-section" id="node-types-section" style="display:none;">

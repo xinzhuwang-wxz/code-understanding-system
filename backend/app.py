@@ -176,7 +176,7 @@ async def explain(req: ExplainRequest):
 
         kg = KnowledgeGraph(str(db_path))
         nodes = kg.query(
-            "MATCH (n:Node {id: $id}) RETURN n.label, n.signature, n.docstring, n.type",
+            "MATCH (n:Node {id: $id}) RETURN n.label, n.signature, n.docstring, n.type, n.file_path, n.line_number",
             {"id": req.node_id},
         )
         kg.close()
@@ -185,26 +185,59 @@ async def explain(req: ExplainRequest):
             return {"explanation": "Node not found.", "node_id": req.node_id}
 
         n = nodes[0]
+        label = n.get("n.label", "")
+        sig = n.get("n.signature", "")
+        doc = n.get("n.docstring", "")
+        ntype = n.get("n.type", "")
+        file_path = n.get("n.file_path", "")
         llm = get_llm()
 
-        # Try LLM first, fall back to structured explanation
-        explanation = llm.explain_code(
-            n.get("n.label", ""),
-            n.get("n.signature", ""),
-            n.get("n.docstring", ""),
-        )
-        # If LLM returned empty (API key issue etc.), use fallback
+        # For file/module nodes with no code context, try reading source
+        extra_context = ""
+        if (not sig or not doc) and file_path:
+            from pathlib import Path
+            # Try repo_root from recent analysis memory or common locations
+            possible_roots = [
+                Path("/Users/bamboo/Githubs"),
+                Path.home() / "Githubs",
+            ]
+            for root in possible_roots:
+                full = root / file_path
+                if full.exists() and full.is_file():
+                    try:
+                        content = full.read_text(encoding="utf-8", errors="replace")
+                        extra_context = content[:3000]
+                        break
+                    except Exception:
+                        pass
+
+        # Build context for LLM
+        context_parts = [f"Symbol: {label}"]
+        if sig:
+            context_parts.append(f"Signature: {sig}")
+        if doc:
+            context_parts.append(f"Docstring: {doc}")
+        if extra_context:
+            context_parts.append(f"Source (first 3000 chars):\n{extra_context}")
+        context = "\n".join(context_parts)
+
+        explanation = ""
+        if llm.available:
+            explanation = llm.chat([
+                {"role": "system", "content": "You are a code explanation assistant. Explain what this code does in 2-4 sentences. If it's a file, describe its purpose and what modules/functions it contains. Be specific and reference the actual code shown."},
+                {"role": "user", "content": f"Explain this code:\n\n{context}"},
+            ], max_tokens=384)
+
         if not explanation:
-            label = n.get("n.label", "")
-            sig = n.get("n.signature", "")
-            doc = n.get("n.docstring", "")
             explanation = f"**{label}**\n\n"
             if sig:
                 explanation += f"`{sig}`\n\n"
             if doc:
                 explanation += f"{doc}\n\n"
-            if not sig and not doc:
-                explanation += f"Type: {n.get('n.type', 'unknown')}\n"
+            if extra_context:
+                explanation += f"(File content available, {len(extra_context)} chars)\n"
+            if not sig and not doc and not extra_context:
+                explanation += f"Type: {ntype}\n"
         return {"node_id": req.node_id, "explanation": explanation}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
