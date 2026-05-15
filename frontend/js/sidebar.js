@@ -84,6 +84,7 @@ class SidebarController {
     _edgeTypeLabel(raw) {
         const map = {
             calls: "calls →", imports: "imports →", contains: "contains →",
+            FileContains: "file contains →", Contains: "class contains →",
             inherits: "inherits →", invokes: "invokes →", references: "references →",
             decorates: "decorates →", handles: "handles →", depends_on: "depends on →",
             reads: "reads →", writes: "writes →", extends: "extends →",

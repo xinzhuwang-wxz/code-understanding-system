@@ -97,11 +97,16 @@ class DetailPanel {
         if (node.git_blame) {
             blameHtml = `<div style="font-size:10px;color:#484f58;margin-top:4px;" title="git blame">👤 ${this._esc(node.git_blame).substring(0, 120)}</div>`;
         }
+        let parentHtml = "";
+        if (node.parent_class) {
+            parentHtml = `<div class="dp-parent-class"><span style="color:#58a6ff;font-size:10px;">class</span> ${this._esc(node.parent_class)}</div>`;
+        }
         this.headerEl.innerHTML = `
             <div class="dp-node-identity">
                 <span class="dp-type-badge" style="background:${color};box-shadow:0 0 8px ${color}" aria-label="Node type">${node.type}</span>
                 <span class="dp-node-name">${this._esc(node.label)}</span>
             </div>
+            ${parentHtml}
             ${node.file_path ? `<div class="dp-file-path">${this._esc(node.file_path)}${node.line_number ? `<span class="dp-line">:${node.line_number}</span>` : ""}</div>` : ""}
             ${blameHtml}
             <div class="dp-conn-count">${node.degree || 0} connections</div>
