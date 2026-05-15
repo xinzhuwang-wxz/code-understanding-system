@@ -558,6 +558,17 @@ class DetailPanel {
             api_call:         { out: "calls API",         in: "API called by" },
             uses:             { out: "uses",              in: "used by" },
             middleware_chain:  { out: "chains to",         in: "chained from" },
+            contains:         { out: "contains",          in: "contained in" },
+            invokes:          { out: "invokes",           in: "invoked by" },
+            references:       { out: "references",        in: "referenced by" },
+            decorates:        { out: "decorates",         in: "decorated by" },
+            reads:            { out: "reads",             in: "read by" },
+            writes:           { out: "writes",            in: "written by" },
+            depends_on:       { out: "depends on",        in: "depended on by" },
+            implements:       { out: "implements",        in: "implemented by" },
+            extends:          { out: "extends",           in: "extended by" },
+            handles:          { out: "handles",           in: "handled by" },
+            data_flows_to:    { out: "flows to",          in: "flows from" },
         };
         const entry = map[type];
         if (entry) return entry[direction] || type;
@@ -575,6 +586,17 @@ class DetailPanel {
             api_call: "API call",
             uses: "uses",
             middleware_chain: "chains",
+            contains: "contains",
+            invokes: "invokes",
+            references: "references",
+            decorates: "decorates",
+            reads: "reads",
+            writes: "writes",
+            depends_on: "depends",
+            implements: "implements",
+            extends: "extends",
+            handles: "handles",
+            data_flows_to: "flows",
         };
         return map[type] || type;
     }

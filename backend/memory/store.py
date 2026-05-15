@@ -21,7 +21,15 @@ from pathlib import Path
 from typing import Any
 
 
-MEMORY_DIR = Path.home() / ".code-kg" / "memory"
+def _get_memory_dir() -> Path:
+    """Get the memory directory, respecting CODE_KG_DATA env var."""
+    code_kg_data = os.environ.get("CODE_KG_DATA")
+    if code_kg_data:
+        return Path(code_kg_data) / "memory"
+    return Path.home() / ".code-kg" / "memory"
+
+
+MEMORY_DIR = _get_memory_dir()
 CONVENTIONS_FILE = MEMORY_DIR / "conventions.yaml"
 EPISODES_DIR = MEMORY_DIR / "episodes"
 

@@ -274,8 +274,8 @@ async def capabilities():
                 "note": "tree-sitter method recommended for multi-language support",
             },
             "search": {
-                "structural": {"endpoint": "/api/search", "method": "POST", "description": "Regex/fuzzy pattern matching on code symbols"},
-                "semantic": {"status": "planned", "description": "Vector similarity search — requires embedding pipeline (v2)"},
+                "structural": {"endpoint": "/api/search", "method": "POST", "description": "Pattern-based code search (CONTAINS/BM25)"},
+                "semantic": {"status": "active", "description": "Vector similarity search via TF-IDF or OpenAI embeddings"},
             },
             "visualization": ["force_graph", "tree_view", "matrix_view", "sunburst_view", "codecity_3d", "metro_map", "code_panel"],
             "llm": {
@@ -291,14 +291,14 @@ async def capabilities():
             "docs": ["/api/docs/index", "/api/docs/search"],
         },
         "mcp_tools": [
-            {"name": "search_pattern", "description": "Pattern-based code search (regex/fuzzy)"},
+            {"name": "search_by_pattern", "description": "Search code symbols by name pattern (exact/BM25)"},
+            {"name": "search_semantic", "description": "Semantic code search using three-layer retrieval"},
             {"name": "traverse_graph", "description": "Traverse code dependencies — callers, callees"},
-            {"name": "get_node_details", "description": "Get detailed info about a code symbol"},
-            {"name": "get_impact_analysis", "description": "Impact analysis for a code symbol"},
             {"name": "get_context", "description": "Get project context, stats, and LLM status"},
             {"name": "get_conventions", "description": "Get coding conventions"},
-            {"name": "search_docs", "description": "Search documentation"},
-            {"name": "analyze_impact", "description": "Git diff impact analysis"},
+            {"name": "ask_question", "description": "Ask NL question about the codebase (LLM)"},
+            {"name": "analyze_impact", "description": "Git diff or entity impact analysis"},
+            {"name": "search_docs", "description": "Search documentation (Markdown + comments + API docs)"},
         ],
         "cli_commands": ["analyze", "search", "neighbors", "explain", "conventions", "diff", "impact", "docs", "status", "mcp-config"],
         "data_formats": {

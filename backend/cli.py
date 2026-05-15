@@ -2,11 +2,12 @@
 
 Usage:
     code-kg analyze /path/to/repo
-    code-kg search "JWT middleware" --semantic
+    code-kg search "JWT middleware" --type function --limit 20
     code-kg explain <node_id>
-    code-kg conventions --export
-    code-kg diff /path/to/repo
-    code-kg impact --file auth.ts --lines 42-89
+    code-kg conventions --repo-path /path/to/repo
+    code-kg diff /path/to/repo --commit-range HEAD~1..HEAD
+    code-kg impact --node-id func_authMiddleware
+    code-kg impact --repo-path . --commit-range HEAD~3..HEAD
     code-kg status
     code-kg mcp-config
 """
