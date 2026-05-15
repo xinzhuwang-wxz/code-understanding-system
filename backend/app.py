@@ -120,6 +120,13 @@ async def analyze(req: AnalyzeRequest):
     except Exception:
         pass  # Conventions auto-gen is best-effort
 
+    # Reset search engine singleton so next search sees fresh data
+    try:
+        from search.engine import reset_search_engine
+        reset_search_engine()
+    except Exception:
+        pass
+
     return result
 
 
@@ -179,11 +186,25 @@ async def explain(req: ExplainRequest):
 
         n = nodes[0]
         llm = get_llm()
+
+        # Try LLM first, fall back to structured explanation
         explanation = llm.explain_code(
             n.get("n.label", ""),
             n.get("n.signature", ""),
             n.get("n.docstring", ""),
         )
+        # If LLM returned empty (API key issue etc.), use fallback
+        if not explanation:
+            label = n.get("n.label", "")
+            sig = n.get("n.signature", "")
+            doc = n.get("n.docstring", "")
+            explanation = f"**{label}**\n\n"
+            if sig:
+                explanation += f"`{sig}`\n\n"
+            if doc:
+                explanation += f"{doc}\n\n"
+            if not sig and not doc:
+                explanation += f"Type: {n.get('n.type', 'unknown')}\n"
         return {"node_id": req.node_id, "explanation": explanation}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

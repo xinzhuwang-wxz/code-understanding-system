@@ -26,18 +26,20 @@ class LLMClient:
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-        # Try loading from project .env if key not in env
-        if not self.api_key:
-            _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-            if _env_path.exists():
-                with open(_env_path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, _, v = line.partition("=")
-                            if k.strip() == "DEEPSEEK_API_KEY":
-                                self.api_key = v.strip().strip('"').strip("'")
-                                break
+        # Always try loading from project .env — it overrides env var
+        _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+        if _env_path.exists():
+            with open(_env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, _, v = line.partition("=")
+                        if k.strip() == "DEEPSEEK_API_KEY":
+                            env_val = v.strip().strip('"').strip("'")
+                            # .env trumps stale/placeholder env var
+                            if env_val and env_val != "sk-your-key-here":
+                                self.api_key = env_val
+                            break
         self.model = model
         self._base_url = DEEPSEEK_BASE_URL
 

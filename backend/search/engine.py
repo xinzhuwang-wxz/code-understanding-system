@@ -309,3 +309,14 @@ def get_search_engine(kg_path: str = "") -> SearchEngine:
     if _engine is None:
         _engine = SearchEngine(kg_path)
     return _engine
+
+
+def reset_search_engine() -> None:
+    """Reset the global search engine — call after new analysis.
+
+    Forces the next search to reconnect to KuzuDB with fresh data.
+    """
+    global _engine
+    if _engine is not None:
+        _engine._kg = None
+    _engine = None
