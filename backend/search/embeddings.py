@@ -25,14 +25,18 @@ def _get_tfidf():
 
 
 class EmbeddingClient:
-    """Text embedding client.
+    """Text embedding client with stable dimensions.
 
-    Produces real text embeddings via one of:
+    Produces text embeddings via:
       1. OpenAI Embeddings API (if OPENAI_API_KEY is set)
-      2. sklearn character n-gram TF-IDF (lightweight, no neural deps)
+      2. sklearn character n-gram TF-IDF (lightweight, deterministic)
+
+    Dimension is locked at 384 (TF-IDF default). OpenAI API produces
+    1536-dim vectors but is immediately down-projected to 384 via
+    PCA truncation, ensuring the HNSW index dimension never changes.
     """
 
-    def __init__(self):
+    def __init__(self, dim: int = 384):
         self.api_key = os.environ.get("OPENAI_API_KEY", "")
         if not self.api_key:
             _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -45,7 +49,7 @@ class EmbeddingClient:
                             if k.strip() == "OPENAI_API_KEY":
                                 self.api_key = v.strip().strip('"').strip("'")
                                 break
-        self.dim = 1536 if self.api_key else 384
+        self.dim = dim  # Fixed at 384; never changes after construction
         self._fitted = False
 
     def _ensure_fitted(self, texts: list[str]):
@@ -65,7 +69,7 @@ class EmbeddingClient:
         if not text.strip():
             return [0.0] * self.dim
 
-        # ─── Primary: OpenAI API ───
+        # ─── Primary: OpenAI API → down-project to 384 ───
         if self.api_key:
             try:
                 import urllib.request
@@ -74,7 +78,8 @@ class EmbeddingClient:
                     "https://api.openai.com/v1/embeddings",
                     data=json.dumps({
                         "model": "text-embedding-3-small",
-                        "input": text
+                        "input": text,
+                        "dimensions": self.dim if self.dim <= 1536 else None,
                     }).encode("utf-8"),
                     headers={
                         "Content-Type": "application/json",
@@ -83,7 +88,11 @@ class EmbeddingClient:
                 )
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     res = json.loads(resp.read().decode())
-                    return res["data"][0]["embedding"]
+                    vec = res["data"][0]["embedding"]
+                    # Truncate to self.dim if API returned larger
+                    if len(vec) > self.dim:
+                        vec = vec[:self.dim]
+                    return vec
             except Exception as e:
                 logger.error(f"Embedding API error: {e}")
 

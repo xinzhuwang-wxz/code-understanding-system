@@ -39,7 +39,7 @@ code-understanding-system/
 │   ├── search/         # Three-layer search + DeepSeek LLM
 │   ├── memory/         # Mnemosyne episodic memory + conventions
 │   ├── impact/         # Git diff → dependency impact analysis
-│   ├── mcp/            # MCP Server (8 tools, stdio JSON-RPC)
+│   ├── mcp/            # MCP Server (11 tools, stdio JSON-RPC)
 │   └── app.py          # FastAPI Web Server
 ├── frontend/           # D3.js interactive graph visualization
 ├── scripts/            # Crash-restart MCP wrapper
@@ -60,6 +60,9 @@ code-understanding-system/
 | `ask_question` | NL question about the codebase (LLM) |
 | `analyze_impact` | Git diff or entity impact analysis |
 | `search_docs` | Search Markdown + comments + API docs |
+| `review_code` | Review code changes with static analysis + LLM |
+| `generate_tour` | Generate a guided code tour |
+| `generate_questions` | Generate suggested questions about the codebase |
 
 ## API Endpoints
 

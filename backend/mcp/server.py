@@ -502,7 +502,7 @@ async def run_mcp_server() -> None:
         if tool is None:
             return [types.TextContent(
                 type="text",
-                text=json.dumps({"error": True, "message": f"Tool not found: {name}"}),
+                text=json.dumps({"error": f"Tool not found: {name}", "code": "NOT_FOUND"}),
             )]
 
         try:
@@ -520,7 +520,7 @@ async def run_mcp_server() -> None:
         except Exception as e:
             return [types.TextContent(
                 type="text",
-                text=json.dumps({"error": True, "message": str(e)}, ensure_ascii=False),
+                text=json.dumps({"error": str(e), "code": "INTERNAL_ERROR"}, ensure_ascii=False),
             )]
 
     async with stdio_server() as (read_stream, write_stream):

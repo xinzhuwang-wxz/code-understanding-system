@@ -195,13 +195,15 @@ class SidebarController {
         const header = panel.querySelector(".dp-header");
         const body = panel.querySelector(".dp-body");
 
+        const layers = data.layers_consulted || data.layers || [];
+        const latency = data.latency_ms || data.total_latency_ms || 0;
         header.innerHTML = `<h2>Search: "${data.query}"</h2>
-            <p class="dp-meta">${data.total} results · ${data.latency_ms}ms · ${data.layers.join(" → ")}</p>`;
+            <p class="dp-meta">${data.total} results · ${latency}ms · ${layers.join(" → ")}</p>`;
 
         let html = '<ul class="search-results">';
         for (const r of data.results) {
             html += `
-                <li class="search-result-item" data-node-id="${r.node_id}" onclick="window.detailPanel.showNode('${r.node_id}')">
+                <li class="search-result-item" data-node-id="${r.node_id}" onclick="window.codeKG.showNode('${r.node_id}')">
                     <span class="sr-type" style="color:var(--node-${r.type}-color, #42a5f5)">${r.type}</span>
                     <strong>${r.label}</strong>
                     <span class="sr-score">${r.score ? r.score.toFixed(3) : ""}</span>

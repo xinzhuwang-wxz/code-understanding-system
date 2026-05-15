@@ -1167,6 +1167,30 @@ html, body {
     padding: 8px 0;
 }
 
+/* ── Print Styles ── */
+
+@media print {
+    #sidebar { display: none; }
+    #graph-container { position: static; }
+    .detail-panel {
+        position: static;
+        width: 100%;
+        height: auto;
+        transform: none;
+        backdrop-filter: none;
+        box-shadow: none;
+        border-left: none;
+        overflow: visible;
+    }
+    .dp-body { overflow: visible; }
+    .view-panel { position: static; overflow: visible; }
+    .mobile-toggle { display: none !important; }
+    .btn-outline, .btn-primary, .btn-secondary, .btn-icon { display: none; }
+    #loading-overlay { display: none !important; }
+    body { background: #fff; color: #000; }
+    * { box-shadow: none !important; text-shadow: none !important; }
+}
+
 /* ── Tour Section ── */
 
 .tour-content {

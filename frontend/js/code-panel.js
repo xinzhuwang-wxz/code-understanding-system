@@ -7,14 +7,19 @@ class CodePanel {
         this.container = document.getElementById(containerId);
         this.editor = null;
         this._ready = false;
+        this._loading = false;
         this._pending = [];
     }
 
     /** Load Monaco from CDN and initialize. */
     init() {
-        if (this._ready) return;
+        if (this._ready || this._loading) return;
         if (typeof monaco === 'undefined') {
-            this._loadMonaco(() => this._createEditor());
+            this._loading = true;
+            this._loadMonaco(() => {
+                this._loading = false;
+                this._createEditor();
+            });
         } else {
             this._createEditor();
         }

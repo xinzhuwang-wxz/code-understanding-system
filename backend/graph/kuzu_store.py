@@ -64,18 +64,12 @@ def get_default_db_path() -> Path:
     """Resolve the default KuzuDB database path.
 
     Checks CODE_KG_DATA env var first, then falls back to
-    ~/.code-kg/graph (resolved via os.path.expanduser which handles
-    Hermes sandbox HOME redirection correctly by checking the
-    underlying passwd entry).
+    ~/.code-kg/graph using Path.home() which is portable across
+    Unix and Windows.
     """
-    import pwd as _pwd
     if env_path := os.environ.get("CODE_KG_DATA"):
         return Path(env_path)
-    try:
-        real_home = _pwd.getpwuid(os.getuid()).pw_dir
-    except Exception:
-        real_home = os.path.expanduser("~")
-    return Path(real_home) / ".code-kg" / "graph"
+    return Path.home() / ".code-kg" / "graph"
 
 
 # ─── Edge Type Mapping ────────────────────────────────────────────

@@ -55,6 +55,23 @@ class ImpactResult:
     raw_errors: list[str] = field(default_factory=list)
 
 
+# Regex to validate git commit_range: avoids git argument injection
+_COMMIT_RANGE_RE = re.compile(
+    r'^[a-zA-Z0-9._\-\/~]+\.{2,3}[a-zA-Z0-9._\-\/~]+$'
+    # Format: ref1..ref2  or  ref1...ref2
+)
+
+
+def _validate_commit_range(value: str) -> str:
+    """Validate commit_range format and reject dangerous values."""
+    if not _COMMIT_RANGE_RE.match(value):
+        raise ValueError(
+            f"Invalid commit_range: {value!r}. "
+            "Expected format: <ref>..<ref> (e.g. HEAD~3..HEAD)"
+        )
+    return value
+
+
 class DiffAnalyzer:
     """Analyze git diffs for code impact assessment."""
 
@@ -83,6 +100,7 @@ class DiffAnalyzer:
         if not self.repo_path:
             return ""
         try:
+            _validate_commit_range(commit_range)
             result = subprocess.run(
                 ["git", "-C", self.repo_path, "diff", commit_range],
                 capture_output=True, text=True, timeout=30,
@@ -96,6 +114,7 @@ class DiffAnalyzer:
         if not self.repo_path:
             return ""
         try:
+            _validate_commit_range(commit_range)
             result = subprocess.run(
                 ["git", "-C", self.repo_path, "diff", "--stat", commit_range],
                 capture_output=True, text=True, timeout=30,
@@ -111,6 +130,7 @@ class DiffAnalyzer:
         if not self.repo_path:
             return []
         try:
+            _validate_commit_range(commit_range)
             result = subprocess.run(
                 ["git", "-C", self.repo_path, "diff", "--name-only", commit_range],
                 capture_output=True, text=True, timeout=30,

@@ -275,17 +275,25 @@ async def capabilities():
             },
             "search": {
                 "structural": {"endpoint": "/api/search", "method": "POST", "description": "Pattern-based code search (CONTAINS/BM25)"},
-                "semantic": {"status": "active", "description": "Vector similarity search via TF-IDF or OpenAI embeddings"},
+                "semantic": {"status": "active", "description": "Keyword/embedding search (TF-IDF or OpenAI embeddings)"},
             },
-            "visualization": ["force_graph", "tree_view", "matrix_view", "sunburst_view", "codecity_3d", "metro_map", "code_panel"],
+            "visualization": {
+                "force_graph": {"status": "active", "description": "D3.js force-directed graph"},
+                "tree_view": {"status": "active", "description": "Hierarchical tree view"},
+                "matrix_view": {"status": "active", "description": "Adjacency matrix"},
+                "sunburst_view": {"status": "active", "description": "Sunburst directory layout"},
+                "codecity_3d": {"status": "beta", "description": "Three.js 3D city visualization"},
+                "metro_map": {"status": "beta", "description": "Metro-style map"},
+                "code_panel": {"status": "active", "description": "Monaco Editor source viewer"},
+            },
             "llm": {
-                "explain": "/api/explain — AI-powered code explanation",
+                "explain": "/api/explain — AI-powered code explanation (requires DEEPSEEK_API_KEY)",
                 "conventions": "/api/conventions — extract coding conventions",
                 "impact_summary": "/api/diff → returns LLM-generated impact summaries",
             },
             "code_intelligence": {
-                "lsp": ["definition", "references", "hover"],
-                "scip": "Cross-file reference indexing",
+                "lsp": {"status": "partial", "description": "Python-only (Jedi-based). TS/JS/Go support planned."},
+                "scip": {"status": "active", "description": "Built-in cross-file reference indexer (no external SCIP toolkit required)"},
             },
             "code_review": ["/api/review/diff (git diff review)", "/api/review/code (code snippet review)"],
             "code_tour": ["/api/tour (guided exploration)", "/api/questions (suggested questions)"],
@@ -432,21 +440,34 @@ async def docs_search(req: DocSearchRequest):
 @app.get("/api/source")
 async def get_source(file_path: str, repo_root: str = "", line_start: int = 0, line_end: int = 0):
     """Read source file content, optionally scoped to a line range.
-    
-    If file_path is relative and repo_root is provided, resolve against repo_root.
-    Otherwise resolve against current working directory.
+
+    Security: resolves file_path against repo_root and rejects path traversal.
     """
     if not file_path:
         raise HTTPException(status_code=400, detail="file_path is required")
 
+    # Determine allowed base directory
+    if repo_root:
+        base = Path(repo_root).resolve()
+        if not base.is_dir():
+            raise HTTPException(status_code=400, detail=f"Invalid repo_root: {repo_root}")
+    else:
+        base = Path.cwd()
+
     p = Path(file_path)
     if not p.is_absolute():
-        if repo_root:
-            p = Path(repo_root) / file_path
+        p = (base / file_path).resolve()
+    else:
         p = p.resolve()
 
+    # Path traversal guard: resolved path must be within base
+    try:
+        p.relative_to(base)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal blocked")
+
     if not p.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {file_path} (resolved: {p})")
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
     if not p.is_file():
         raise HTTPException(status_code=400, detail=f"Not a file: {file_path}")

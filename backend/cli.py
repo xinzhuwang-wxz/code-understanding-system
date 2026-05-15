@@ -105,7 +105,7 @@ def _pretty_option(f):
     """Decorator adding --pretty flag to a command."""
     return click.option(
         "--pretty/--no-pretty",
-        default=False,
+        default=True,
         help="Human-readable indented output.",
     )(f)
 
@@ -301,7 +301,7 @@ def _get_project_root() -> Path:
               help="Attempt to merge into an existing Claude Desktop config.")
 @click.option("--format", "output_format", type=click.Choice(["claude", "hermes", "all"]),
               default="all", help="Config format to output.")
-@click.option("--pretty", "pretty_flag", is_flag=True, default=False,
+@click.option("--pretty/--no-pretty", "pretty_flag", default=True,
               help="Pretty-print JSON output.")
 def mcp_config(merge: bool, output_format: str, pretty_flag: bool) -> None:
     """Generate MCP server configuration for Claude Desktop / Codex / Hermes Agent.
@@ -384,8 +384,18 @@ def mcp_config(merge: bool, output_format: str, pretty_flag: bool) -> None:
                 click.echo(f"Found existing config at {p}", err=True)
                 found = True
                 if merge:
-                    click.echo("Merge not yet implemented. "
-                               "Manually add the 'code-kg' entry to your config.", err=True)
+                    try:
+                        existing = json.loads(p.read_text(encoding="utf-8"))
+                    except Exception:
+                        click.echo("Warning: existing config is not valid JSON. Overwriting.", err=True)
+                        existing = {}
+                    mcp_servers = existing.setdefault("mcpServers", {})
+                    if "code-kg" in mcp_servers:
+                        click.echo("code-kg already configured. Skipping.", err=True)
+                    else:
+                        mcp_servers["code-kg"] = {"command": server_cmd}
+                        p.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+                        click.echo(f"Merged code-kg config into {p}", err=True)
                 else:
                     click.echo("To merge, run: code-kg mcp-config --merge", err=True)
                 break

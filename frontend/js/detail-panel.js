@@ -25,6 +25,8 @@ class DetailPanel {
 
         this.closeBtn.addEventListener("click", () => this.close());
         this.backBtn.addEventListener("click", () => this._goBack());
+        this._boundKeyDown = (e) => this._onKeyDown(e);
+        document.addEventListener("keydown", this._boundKeyDown);
     }
 
     setGraphData(data) {
@@ -637,6 +639,14 @@ class DetailPanel {
         this.onNavigate(nodeId);
     }
 
+    // ── Escape Key ──
+
+    _onKeyDown(e) {
+        if (e.key === "Escape" && this.panel.classList.contains("open")) {
+            this.close();
+        }
+    }
+
     // ── Source Code Viewer ──
 
     async _renderSource(node) {
@@ -721,12 +731,12 @@ class DetailPanel {
     async _renderAIExplain(node) {
         if (!node.id) return;
 
-        const section = this._section("AI EXPLAIN");
+        const section = this._section("EXPLANATION");
         section.classList.add("dp-ai-section");
 
         const container = document.createElement("div");
         container.className = "dp-ai-container";
-        container.innerHTML = `<div class="dp-ai-loading">🤖 Asking AI to explain <strong>${this._esc(node.label)}</strong>&hellip;</div>`;
+        container.innerHTML = `<div class="dp-ai-loading">Loading explanation for <strong>${this._esc(node.label)}</strong>&hellip;</div>`;
         section.appendChild(container);
         this.bodyEl.appendChild(section);
 
@@ -737,17 +747,17 @@ class DetailPanel {
                 body: JSON.stringify({ node_id: node.id }),
             });
             if (!resp.ok) {
-                container.innerHTML = `<div class="dp-ai-error">Explain unavailable (${resp.status})</div>`;
+                container.innerHTML = `<div class="dp-ai-error">Explanation unavailable (${resp.status}). Set DEEPSEEK_API_KEY for AI-powered explanations.</div>`;
                 return;
             }
             const data = await resp.json();
             if (!data.explanation) {
-                container.innerHTML = `<div class="dp-ai-empty">No AI explanation available.</div>`;
+                container.innerHTML = `<div class="dp-ai-empty">No explanation available.</div>`;
                 return;
             }
             container.innerHTML = `<div class="dp-ai-content">${this._esc(data.explanation)}</div>`;
         } catch (err) {
-            container.innerHTML = `<div class="dp-ai-error">AI Explain failed: ${this._esc(err.message)}</div>`;
+            container.innerHTML = `<div class="dp-ai-error">Failed to load explanation: ${this._esc(err.message)}</div>`;
         }
     }
 

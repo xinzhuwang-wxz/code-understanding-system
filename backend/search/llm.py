@@ -18,7 +18,7 @@ from typing import Any
 
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-coder")
 
 
 class LLMClient:

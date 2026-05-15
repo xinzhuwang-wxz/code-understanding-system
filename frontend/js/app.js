@@ -366,6 +366,11 @@
                 renderer.zoomToNode(filePath);
             }
         },
+        showNode(nodeId) {
+            if (detailPanel && nodeId) {
+                detailPanel.show(nodeId);
+            }
+        },
     };
 
     initMobileToggle();
