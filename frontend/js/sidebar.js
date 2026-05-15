@@ -122,7 +122,14 @@ class SidebarController {
         let debounce = null;
         this.searchInput.addEventListener("input", () => {
             clearTimeout(debounce);
-            debounce = setTimeout(() => this._performSearch(), 200);
+            debounce = setTimeout(() => this._performSearch(), 300);
+        });
+        // Also search on Enter key
+        this.searchInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                clearTimeout(debounce);
+                this._performSearchAPI();
+            }
         });
     }
 
@@ -133,6 +140,7 @@ class SidebarController {
             return;
         }
 
+        // Local search (fast, for loaded graph)
         const matches = [];
         for (const n of this.graphData.nodes) {
             const label = (n.label || "").toLowerCase();
@@ -142,5 +150,51 @@ class SidebarController {
             }
         }
         this.graph.setSearchMatches(matches);
+    }
+
+    async _performSearchAPI() {
+        const query = this.searchInput.value.trim();
+        if (!query) return;
+
+        try {
+            const resp = await fetch("/api/search", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query, node_type: "function", max_results: 15 }),
+            });
+            const data = await resp.json();
+            if (data.results && data.results.length > 0) {
+                // Show results in detail panel
+                this._showSearchResults(data);
+            }
+        } catch (err) {
+            console.warn("Search API error:", err);
+        }
+    }
+
+    _showSearchResults(data) {
+        const panel = document.getElementById("detail-panel");
+        const header = panel.querySelector(".dp-header");
+        const body = panel.querySelector(".dp-body");
+
+        header.innerHTML = `<h2>Search: "${data.query}"</h2>
+            <p class="dp-meta">${data.total} results · ${data.latency_ms}ms · ${data.layers.join(" → ")}</p>`;
+
+        let html = '<ul class="search-results">';
+        for (const r of data.results) {
+            html += `
+                <li class="search-result-item" data-node-id="${r.node_id}" onclick="window.detailPanel.showNode('${r.node_id}')">
+                    <span class="sr-type" style="color:var(--node-${r.type}-color, #42a5f5)">${r.type}</span>
+                    <strong>${r.label}</strong>
+                    <span class="sr-score">${r.score ? r.score.toFixed(3) : ""}</span>
+                    <div class="sr-location">${r.file_path}:${r.line_number}</div>
+                    ${r.docstring ? `<div class="sr-docstring">${r.docstring.substring(0, 200)}</div>` : ""}
+                </li>`;
+        }
+        html += "</ul>";
+        body.innerHTML = html;
+
+        panel.removeAttribute("aria-hidden");
+        panel.style.display = "";
     }
 }
