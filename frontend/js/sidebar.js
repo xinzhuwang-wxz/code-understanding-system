@@ -341,7 +341,8 @@ class SidebarController {
                 for (const r of data.references.slice(0, 8)) {
                     const typeBadge = `<span class="ai-ref-type">${r.type || 'node'}</span>`;
                     const fileInfo = r.file_path ? `<span class="ai-ref-file" title="${this._esc(r.file_path)}:${r.line_number || 0}">${this._esc(r.file_path)}<span class="ai-ref-ln">:${r.line_number || 0}</span></span>` : '';
-                    html += `<div class="ai-ref-card" onclick="window.codeKG.showNode('${this._esc(r.node_id)}')" title="Click to locate on graph">`;
+                    const fullDesc = [r.file_path, r.label].filter(Boolean).join(' > ');
+                    html += `<div class="ai-ref-card" onclick="window.codeKG.showNode('${this._esc(r.node_id)}')" title="${this._esc(fullDesc)}">`;
                     html += `<span class="ai-ref-label">${typeBadge} <strong>${this._esc(r.label)}</strong></span>`;
                     html += fileInfo;
                     if (r.score) html += `<span class="ai-ref-score">${(r.score * 100).toFixed(0)}%</span>`;

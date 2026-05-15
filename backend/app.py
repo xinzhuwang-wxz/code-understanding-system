@@ -134,11 +134,11 @@ async def analyze(req: AnalyzeRequest):
 
 @app.post("/api/search")
 async def search(req: SearchRequest):
-    """Three-layer semantic search with adaptive escalation."""
+    """CODE SEARCH — structural text-matching only (no semantic noise)."""
     try:
         from search.engine import get_search_engine
         engine = get_search_engine()
-        response = engine.search(req.query, req.node_type, req.max_results)
+        response = engine.search(req.query, req.node_type, req.max_results, text_only=True)
         return {
             "query": response.query,
             "results": [

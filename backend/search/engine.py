@@ -75,6 +75,7 @@ class SearchEngine:
         query: str,
         node_type: str = "",
         max_results: int = 20,
+        text_only: bool = False,
     ) -> SearchResponse:
         """Execute a three-layer search with adaptive escalation.
 
@@ -82,6 +83,8 @@ class SearchEngine:
             query: Natural language or keyword query.
             node_type: Optional filter by node type (function, class, etc.).
             max_results: Maximum results to return.
+            text_only: If True, only use structural text matching (no semantic/graph).
+                       Used for CODE SEARCH (keyword lookup), not AI ASK.
 
         Returns:
             SearchResponse with results and diagnostics.
@@ -96,32 +99,37 @@ class SearchEngine:
         # ─── Layer 1: Structural Search ───
         structural_results = self._search_structural(query, node_type)
         layers_consulted.append("structural")
-        signal = self._diagnose(structural_results)
 
-        if signal == "healthy":
+        if text_only:
+            # CODE SEARCH mode — structural only, no semantic/graph noise
             all_results = structural_results
-        elif signal == "zero":
-            escalation_path.append("structural:zero→semantic")
-            semantic_results = self._search_semantic(query, node_type)
-            layers_consulted.append("semantic")
-            all_results = self._rbf_merge(structural_results, semantic_results)
-        elif signal == "few":
-            escalation_path.append("structural:few→semantic")
-            semantic_results = self._search_semantic(query, node_type)
-            layers_consulted.append("semantic")
-            all_results = self._rbf_merge(structural_results, semantic_results)
-        elif signal == "flat":
-            escalation_path.append("structural:flat→semantic(more)")
-            semantic_results = self._search_semantic(query, node_type, top_k=50)
-            layers_consulted.append("semantic")
-            all_results = self._rbf_merge(structural_results, semantic_results)
+        else:
+            signal = self._diagnose(structural_results)
 
-        # ─── Optional Layer 3: Graph expansion ───
-        if len(all_results) < 5 and "graph" not in layers_consulted:
-            escalation_path.append("sparse→graph_expansion")
-            graph_results = self._search_graph(query, all_results[:3] if all_results else [])
-            layers_consulted.append("graph")
-            all_results = self._rbf_merge(all_results, graph_results)
+            if signal == "healthy":
+                all_results = structural_results
+            elif signal == "zero":
+                escalation_path.append("structural:zero→semantic")
+                semantic_results = self._search_semantic(query, node_type)
+                layers_consulted.append("semantic")
+                all_results = self._rbf_merge(structural_results, semantic_results)
+            elif signal == "few":
+                escalation_path.append("structural:few→semantic")
+                semantic_results = self._search_semantic(query, node_type)
+                layers_consulted.append("semantic")
+                all_results = self._rbf_merge(structural_results, semantic_results)
+            elif signal == "flat":
+                escalation_path.append("structural:flat→semantic(more)")
+                semantic_results = self._search_semantic(query, node_type, top_k=50)
+                layers_consulted.append("semantic")
+                all_results = self._rbf_merge(structural_results, semantic_results)
+
+            # ─── Optional Layer 3: Graph expansion ───
+            if len(all_results) < 5 and "graph" not in layers_consulted:
+                escalation_path.append("sparse→graph_expansion")
+                graph_results = self._search_graph(query, all_results[:3] if all_results else [])
+                layers_consulted.append("graph")
+                all_results = self._rbf_merge(all_results, graph_results)
 
         # ─── Finalize ───
         elapsed = (time.time() - start) * 1000
@@ -142,12 +150,13 @@ class SearchEngine:
     def _search_structural(
         self, query: str, node_type: str = ""
     ) -> list[SearchResult]:
-        """Layer 1: Pattern-based search via KuzuDB CONTAINS (BM25-like)."""
+        """Layer 1: Pattern-based search across label, file_path, docstring, signature."""
         try:
             kg = self._get_kg()
-            # Search by label AND file_path for filename queries like "model.py"
             rows = kg.query(
-                "MATCH (n:Node) WHERE n.label CONTAINS $query OR n.file_path CONTAINS $query "
+                "MATCH (n:Node) WHERE "
+                "n.label CONTAINS $query OR n.file_path CONTAINS $query "
+                "OR n.docstring CONTAINS $query OR n.signature CONTAINS $query "
                 "RETURN n.*, n.label AS label, n.id AS id LIMIT $limit",
                 {"query": query, "limit": 200}
             )
@@ -157,9 +166,23 @@ class SearchEngine:
                 nid = r.get("n.id", "")
                 if nid in seen: continue
                 seen.add(nid)
-                # Boost score for exact label match
                 label = r.get("n.label", "")
-                score = 0.9 if label.lower() == query.lower() else 0.7 if query.lower() in label.lower() else 0.5
+                # Scoring: exact label > partial label > file_path > docstring/signature
+                ql = query.lower()
+                ll = label.lower()
+                fp = (r.get("n.file_path", "") or "").lower()
+                doc = (r.get("n.docstring", "") or "").lower()
+                sig = (r.get("n.signature", "") or "").lower()
+                if ll == ql:
+                    score = 0.95
+                elif ql in ll:
+                    score = 0.80
+                elif ql in fp:
+                    score = 0.70
+                elif ql in doc or ql in sig:
+                    score = 0.50
+                else:
+                    score = 0.40  # fallback (shouldn't normally hit this)
                 results.append(SearchResult(
                     node_id=nid,
                     label=label,
