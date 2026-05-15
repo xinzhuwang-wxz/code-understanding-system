@@ -287,6 +287,8 @@ async def capabilities():
                 "lsp": ["definition", "references", "hover"],
                 "scip": "Cross-file reference indexing",
             },
+            "code_review": ["/api/review/diff (git diff review)", "/api/review/code (code snippet review)"],
+            "code_tour": ["/api/tour (guided exploration)", "/api/questions (suggested questions)"],
             "impact_analysis": ["/api/diff (git diff)", "/api/impact (entity-level)"],
             "docs": ["/api/docs/index", "/api/docs/search"],
         },
@@ -299,6 +301,9 @@ async def capabilities():
             {"name": "ask_question", "description": "Ask NL question about the codebase (LLM)"},
             {"name": "analyze_impact", "description": "Git diff or entity impact analysis"},
             {"name": "search_docs", "description": "Search documentation (Markdown + comments + API docs)"},
+            {"name": "review_code", "description": "Code review with static analysis + LLM"},
+            {"name": "generate_tour", "description": "Generate guided code tour"},
+            {"name": "generate_questions", "description": "Generate suggested questions"},
         ],
         "cli_commands": ["analyze", "search", "neighbors", "explain", "conventions", "diff", "impact", "docs", "status", "mcp-config"],
         "data_formats": {
@@ -534,6 +539,72 @@ async def lsp_hover(req: LspHoverRequest):
 
 
 # ─── SCIP Endpoint ─────────────────────────────────────────────
+
+class ReviewDiffRequest(BaseModel):
+    diff_text: str
+    repo_path: str = ""
+    language: str = ""
+
+
+class ReviewCodeRequest(BaseModel):
+    code: str
+    language: str = ""
+    file_path: str = ""
+
+
+@app.post("/api/review/diff")
+async def review_diff(req: ReviewDiffRequest):
+    """Review a git diff with static analysis + LLM."""
+    try:
+        from review.reviewer import review_diff as run_review
+        result = run_review(req.diff_text, req.repo_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review/code")
+async def review_code(req: ReviewCodeRequest):
+    """Review a code snippet with static analysis + LLM."""
+    try:
+        from review.reviewer import review_code as run_review
+        result = run_review(req.code, req.language, req.file_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TourRequest(BaseModel):
+    repo_path: str = ""
+    max_stops: int = 10
+
+
+@app.post("/api/tour")
+async def code_tour(req: TourRequest):
+    """Generate a guided code tour — 'N things you should know'."""
+    try:
+        from review.tour import generate_tour
+        stops = generate_tour(req.repo_path, req.max_stops)
+        return {"stops": stops, "total": len(stops)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class QuestionsRequest(BaseModel):
+    repo_path: str = ""
+    max_questions: int = 5
+
+
+@app.post("/api/questions")
+async def suggested_questions(req: QuestionsRequest):
+    """Generate suggested questions about the codebase."""
+    try:
+        from review.tour import generate_questions
+        questions = generate_questions(req.repo_path, req.max_questions)
+        return {"questions": questions, "total": len(questions)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 class ScipIndexRequest(BaseModel):
     repo_path: str

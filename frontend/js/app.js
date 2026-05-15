@@ -182,6 +182,8 @@
 
             displayGraph(data);
             setStatus(`Loaded ${data.stats.total_nodes} nodes, ${data.stats.total_edges} edges`);
+            loadTour(repoPath);
+            loadQuestions(repoPath);
         } catch (err) {
             setStatus(err.message, true);
         } finally {
@@ -258,6 +260,96 @@
         statusMsg.className = "status-msg" + (isError ? " error" : "");
     }
 
+    // ─── Code Tour ────────────────────────────────────────────────
+
+    const tourSection = document.getElementById("tour-section");
+    const tourContent = document.getElementById("tour-content");
+    const tourRefreshBtn = document.getElementById("tour-refresh-btn");
+
+    async function loadTour(repoPath) {
+        if (!repoPath) return;
+        try {
+            const resp = await fetch("/api/tour", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ repo_path: repoPath, max_stops: 10 }),
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderTour(data.stops || []);
+        } catch (_) { /* best-effort */ }
+    }
+
+    function renderTour(stops) {
+        if (!stops || stops.length === 0) {
+            tourContent.innerHTML = '<div class="tour-empty">No tour available. Analyze a repo first.</div>';
+            tourSection.style.display = "";
+            return;
+        }
+        tourContent.innerHTML = stops.map(stop => {
+            const icon = stop.type === "file" ? "📁" :
+                        stop.type === "function" ? "⚡" :
+                        stop.type === "entry" ? "🚪" : "📌";
+            return `
+                <div class="tour-stop" onclick="window.codeKG?.switchView('force'); window.codeKG?.zoomToNode('${stop.file_path}')">
+                    <div class="tour-stop-title">${icon} ${stop.title || stop.file_path}</div>
+                    <div class="tour-stop-desc">${stop.description || ""}</div>
+                    <div class="tour-stop-meta">${stop.file_path || ""}</div>
+                </div>
+            `;
+        }).join("");
+        tourSection.style.display = "";
+    }
+
+    if (tourRefreshBtn) {
+        tourRefreshBtn.addEventListener("click", () => {
+            const repoPath = repoInput.value.trim();
+            if (repoPath) loadTour(repoPath);
+        });
+    }
+
+    // ─── Question Seeds ────────────────────────────────────────────
+
+    const questionsSection = document.getElementById("questions-section");
+    const questionsContent = document.getElementById("questions-content");
+    const questionsRefreshBtn = document.getElementById("questions-refresh-btn");
+
+    async function loadQuestions(repoPath) {
+        if (!repoPath) return;
+        try {
+            const resp = await fetch("/api/questions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ repo_path: repoPath, max_questions: 5 }),
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderQuestions(data.questions || []);
+        } catch (_) { /* best-effort */ }
+    }
+
+    function renderQuestions(questions) {
+        if (!questions || questions.length === 0) {
+            questionsContent.innerHTML = '<div class="question-empty">No questions yet.</div>';
+            questionsSection.style.display = "";
+            return;
+        }
+        questionsContent.innerHTML = questions.map(q => `
+            <div class="question-item" onclick="document.getElementById('search-input').value = '${q.question.replace(/'/g, "\\'")}'; document.getElementById('search-input').focus();">
+                <div class="question-text">${q.question}</div>
+                <span class="question-category">${q.category || "general"}</span>
+            </div>
+        `).join("");
+        questionsSection.style.display = "";
+    }
+
+    if (questionsRefreshBtn) {
+        questionsRefreshBtn.addEventListener("click", () => {
+            const repoPath = repoInput.value.trim();
+            if (repoPath) loadQuestions(repoPath);
+        });
+    }
+
     // Handle window resize for active view
     window.addEventListener("resize", () => {
         if (currentView !== "force" && views[currentView]) {
@@ -269,6 +361,11 @@
     window.codeKG = {
         switchView,
         get codePanel() { return codePanel; },
+        zoomToNode(filePath) {
+            if (renderer && filePath) {
+                renderer.zoomToNode(filePath);
+            }
+        },
     };
 
     initMobileToggle();

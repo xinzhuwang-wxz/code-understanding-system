@@ -286,12 +286,12 @@ class SearchDocsTool(Tool):
     """Search documentation — Markdown files, source comments, API docs."""
 
     name = "search_docs"
-    description = "Search documentation — Markdown files, source code comments, and API documentation."
+    description = "Search documentation — Markdown files, source comments, and API docs."
 
     input_schema = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Search query for documentation."},
+            "query": {"type": "string", "description": "Search query."},
             "max_results": {"type": "integer", "default": 20},
         },
         "required": ["query"],
@@ -302,3 +302,67 @@ class SearchDocsTool(Tool):
         indexer = DocIndexer()
         results = indexer.search_docs(query, max_results)
         return {"results": results, "total": len(results)}
+
+
+class ReviewCodeTool(Tool):
+    """Review code changes — diff or snippet — with static analysis + LLM."""
+
+    name = "review_code"
+    description = "Review code changes (diff or code snippet) with static analysis rules and optional LLM assessment. Returns issues, strengths, risk level, and score."
+
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "Code diff (unified format) or code snippet to review."},
+            "mode": {"type": "string", "default": "diff", "description": "'diff' for git diff review, 'snippet' for code snippet review."},
+            "repo_path": {"type": "string", "default": "", "description": "Repository path for graph context (only for diff mode)."},
+            "language": {"type": "string", "default": "", "description": "Programming language (only for snippet mode)."},
+        },
+        "required": ["code"],
+    }
+
+    def execute(self, code: str, mode: str = "diff", repo_path: str = "", language: str = "") -> dict:
+        from review.reviewer import review_diff, review_code
+        if mode == "snippet":
+            return review_code(code, language=language, file_path="")
+        return review_diff(code, repo_path=repo_path)
+
+
+class GenerateTourTool(Tool):
+    """Generate a guided code tour of the repository."""
+
+    name = "generate_tour"
+    description = "Generate a guided code tour highlighting key files, hot spots, and entry points in the codebase."
+
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "repo_path": {"type": "string", "default": "", "description": "Repository path."},
+            "max_stops": {"type": "integer", "default": 10},
+        },
+    }
+
+    def execute(self, repo_path: str = "", max_stops: int = 10) -> dict:
+        from review.tour import generate_tour
+        stops = generate_tour(repo_path, max_stops)
+        return {"stops": stops, "total": len(stops)}
+
+
+class GenerateQuestionsTool(Tool):
+    """Generate suggested questions about the codebase."""
+
+    name = "generate_questions"
+    description = "Generate suggested questions a developer might ask about this codebase."
+
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "repo_path": {"type": "string", "default": "", "description": "Repository path."},
+            "max_questions": {"type": "integer", "default": 5},
+        },
+    }
+
+    def execute(self, repo_path: str = "", max_questions: int = 5) -> dict:
+        from review.tour import generate_questions
+        questions = generate_questions(repo_path, max_questions)
+        return {"questions": questions, "total": len(questions)}

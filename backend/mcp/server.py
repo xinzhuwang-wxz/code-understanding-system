@@ -280,7 +280,7 @@ def tool_analyze_impact(node_id: str) -> dict:
 
 
 def tool_search_docs(query: str, max_results: int = 20) -> dict:
-    """Search documentation — Markdown files, source comments, API docs."""
+    """Search documentation — Markdown files, source code comments, API docs."""
     try:
         from search.doc_indexer import DocIndexer
         indexer = DocIndexer()
@@ -288,6 +288,37 @@ def tool_search_docs(query: str, max_results: int = 20) -> dict:
         return {"results": results, "total": len(results)}
     except Exception as e:
         return {"results": [], "error": str(e)}
+
+
+def tool_review_code(code: str, mode: str = "diff", repo_path: str = "", language: str = "") -> dict:
+    """Review code changes with static analysis + LLM."""
+    try:
+        from review.reviewer import review_diff, review_code
+        if mode == "snippet":
+            return review_code(code, language=language, file_path="")
+        return review_diff(code, repo_path=repo_path)
+    except Exception as e:
+        return {"error": str(e), "issues": [], "score": 0}
+
+
+def tool_generate_tour(repo_path: str = "", max_stops: int = 10) -> dict:
+    """Generate a guided code tour."""
+    try:
+        from review.tour import generate_tour
+        stops = generate_tour(repo_path, max_stops)
+        return {"stops": stops, "total": len(stops)}
+    except Exception as e:
+        return {"stops": [], "error": str(e)}
+
+
+def tool_generate_questions(repo_path: str = "", max_questions: int = 5) -> dict:
+    """Generate suggested questions about the codebase."""
+    try:
+        from review.tour import generate_questions
+        questions = generate_questions(repo_path, max_questions)
+        return {"questions": questions, "total": len(questions)}
+    except Exception as e:
+        return {"questions": [], "error": str(e)}
 
 
 # ─── Tool Registry ─────────────────────────────────────────────────
@@ -393,6 +424,45 @@ TOOL_REGISTRY = [
             "required": ["query"],
         },
         "handler": tool_search_docs,
+    },
+    {
+        "name": "review_code",
+        "description": "Review code changes (diff or snippet) with static analysis + LLM. Returns issues, strengths, risk level.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Unified diff or code snippet."},
+                "mode": {"type": "string", "default": "diff", "enum": ["diff", "snippet"]},
+                "repo_path": {"type": "string", "default": "", "description": "Repo path for graph context."},
+                "language": {"type": "string", "default": ""},
+            },
+            "required": ["code"],
+        },
+        "handler": tool_review_code,
+    },
+    {
+        "name": "generate_tour",
+        "description": "Generate a guided code tour — highlights key files, hotspots, entry points.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "default": ""},
+                "max_stops": {"type": "integer", "default": 10},
+            },
+        },
+        "handler": tool_generate_tour,
+    },
+    {
+        "name": "generate_questions",
+        "description": "Generate suggested questions about the codebase for new developers.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "default": ""},
+                "max_questions": {"type": "integer", "default": 5},
+            },
+        },
+        "handler": tool_generate_questions,
     },
 ]
 
