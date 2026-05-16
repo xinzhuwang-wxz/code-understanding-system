@@ -1,5 +1,0 @@
-[console_scripts]
-code-kg = backend.cli:main
-
-[mcp.servers]
-code-kg = backend.mcp.server_standalone:main
