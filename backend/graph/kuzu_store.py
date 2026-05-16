@@ -394,7 +394,11 @@ class KnowledgeGraph:
             return
         try:
             import numpy as np
-            self._hnsw_index_path.parent.mkdir(parents=True, exist_ok=True)
+            hnsw_dir = self._hnsw_index_path.parent
+            # Clean up if hnsw_dir exists as a file (can happen from corrupted state)
+            if hnsw_dir.is_file():
+                hnsw_dir.unlink()
+            hnsw_dir.mkdir(parents=True, exist_ok=True)
             self._hnsw_index.save_index(str(self._hnsw_index_path))
             np.save(str(self._hnsw_ids_path), np.array(self._hnsw_ids, dtype=object))
         except Exception as e:
