@@ -8,4 +8,5 @@ kuzu_data/
 test-results/
 .pytest_cache/
 *.egg-info/
+PLAN.md
 .env
